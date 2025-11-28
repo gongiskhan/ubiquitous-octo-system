@@ -1,0 +1,33 @@
+{
+  "name": "branchrunner",
+  "version": "1.0.0",
+  "description": "Local service that receives GitHub push webhooks, runs builds, captures screenshots, and sends Slack notifications",
+  "type": "module",
+  "scripts": {
+    "dev:server": "tsx watch server/index.ts",
+    "dev:web": "cd web && npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "cd web && npm run build",
+    "build": "npm run build:server && npm run build:web",
+    "start": "node dist/server/index.js",
+    "postinstall": "cd web && npm install"
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "playwright": "^1.40.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.5",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

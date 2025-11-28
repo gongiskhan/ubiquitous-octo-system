@@ -1,0 +1,5 @@
+{
+  "repos": [],
+  "webhookBaseUrl": "https://YOUR-FUNNEL-URL",
+  "defaultPort": 3000
+}
