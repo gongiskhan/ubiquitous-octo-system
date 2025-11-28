@@ -1,6 +1,7 @@
-import { Router, Request, Response } from 'express';
-import { existsSync, readFileSync } from 'fs';
+import { Router, Request, Response, NextFunction } from 'express';
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
+import os from 'os';
 import {
   getConfigs,
   getRepoConfig,
@@ -9,8 +10,16 @@ import {
   deleteRepoConfig,
   getWebhookBaseUrl,
   setWebhookBaseUrl,
+  getCloneBaseDir,
+  setCloneBaseDir,
+  isCacheEnabled,
+  setCacheEnabled,
+  getDefaultBuildOptions,
+  setDefaultBuildOptions,
+  getRunsByBranch,
   type RepoConfig,
   type ProfileType,
+  type BuildOptions,
 } from '../config.js';
 import {
   listUserRepos,
@@ -19,7 +28,7 @@ import {
   deleteWebhook,
   isGitHubTokenSet,
 } from '../github/api.js';
-import { enqueue, getQueueStatus } from '../build/queue.js';
+import { enqueue, getQueueStatus, clearQueue } from '../build/queue.js';
 import {
   getBuildLog,
   getRuntimeLog,
@@ -31,29 +40,52 @@ import {
 import { getTailscaleIp, isTailscaleRunning } from '../tailscale/ip.js';
 import { isSlackConfigured, sendTestNotification } from '../slack/notifier.js';
 import { info, error as logError } from '../logging/logger.js';
+import { cloneRepo, detectPortFromPackageJson, resetToMain, deleteClonedRepo } from '../utils/repoManager.js';
+import { getCacheStats, clearCache, cleanOldCaches } from '../utils/buildCache.js';
 
 const router = Router();
 
-// Status endpoint
-router.get('/status', async (_req: Request, res: Response) => {
-  try {
-    const tailscaleIp = await getTailscaleIp();
-    const tailscaleRunning = await isTailscaleRunning();
-    const queueStatus = getQueueStatus();
+// Async handler wrapper for error handling
+const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 
-    res.json({
-      tailscaleIp,
-      tailscaleRunning,
-      queue: queueStatus,
-      githubTokenSet: isGitHubTokenSet(),
-      webhookSecretSet: !!process.env.GITHUB_WEBHOOK_SECRET,
-      slackConfigured: isSlackConfigured(),
-    });
-  } catch (error) {
-    logError(`Status endpoint error: ${error}`, 'API');
-    res.status(500).json({ error: 'Failed to get status' });
-  }
-});
+// Global status endpoint with machine info
+router.get('/status', asyncHandler(async (_req: Request, res: Response) => {
+  const tailscaleIp = await getTailscaleIp();
+  const tailscaleRunning = await isTailscaleRunning();
+  const queueStatus = getQueueStatus();
+
+  const cpus = os.cpus();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+
+  res.json({
+    tailscaleIp,
+    tailscaleRunning,
+    queue: queueStatus,
+    githubTokenSet: isGitHubTokenSet(),
+    webhookSecretSet: !!process.env.GITHUB_WEBHOOK_SECRET,
+    slackConfigured: isSlackConfigured(),
+    machine: {
+      platform: os.platform(),
+      arch: os.arch(),
+      hostname: os.hostname(),
+      cpuCount: cpus.length,
+      cpuModel: cpus[0]?.model,
+      totalMemoryGB: Math.round(totalMem / 1024 / 1024 / 1024 * 10) / 10,
+      freeMemoryGB: Math.round(freeMem / 1024 / 1024 / 1024 * 10) / 10,
+      memoryUsagePercent: Math.round((1 - freeMem / totalMem) * 100),
+      uptime: Math.round(os.uptime() / 60), // minutes
+    },
+    config: {
+      cloneBaseDir: getCloneBaseDir(),
+      cacheEnabled: isCacheEnabled(),
+      defaultBuildOptions: getDefaultBuildOptions(),
+    },
+  });
+}));
 
 // List configured repos
 router.get('/config/repos', (_req: Request, res: Response) => {
@@ -89,9 +121,15 @@ router.post('/config/repos', (req: Request, res: Response) => {
   try {
     const repo = req.body as RepoConfig;
 
-    if (!repo.repoFullName || !repo.localPath || !repo.profile) {
-      res.status(400).json({ error: 'Missing required fields: repoFullName, localPath, profile' });
+    if (!repo.repoFullName || !repo.profile) {
+      res.status(400).json({ error: 'Missing required fields: repoFullName, profile' });
       return;
+    }
+
+    // If no localPath, use default clone directory
+    if (!repo.localPath) {
+      const [owner, repoName] = repo.repoFullName.split('/');
+      repo.localPath = join(getCloneBaseDir(), owner, repoName);
     }
 
     addRepoConfig(repo);
@@ -128,6 +166,15 @@ router.patch('/config/repos/:repoFullName(*)', (req: Request, res: Response) => 
 router.delete('/config/repos/:repoFullName(*)', (req: Request, res: Response) => {
   try {
     const { repoFullName } = req.params;
+    const { deleteLocalClone } = req.query;
+
+    const repo = getRepoConfig(decodeURIComponent(repoFullName));
+
+    // Optionally delete the local clone
+    if (deleteLocalClone === 'true' && repo?.autoCloned && repo?.localPath) {
+      deleteClonedRepo(repo.localPath);
+    }
+
     const deleted = deleteRepoConfig(decodeURIComponent(repoFullName));
 
     if (!deleted) {
@@ -142,60 +189,126 @@ router.delete('/config/repos/:repoFullName(*)', (req: Request, res: Response) =>
   }
 });
 
-// Create webhook for repo
-router.post('/config/repos/:repoFullName(*)/create-webhook', async (req: Request, res: Response) => {
+// Clone a repo
+router.post('/config/repos/:repoFullName(*)/clone', asyncHandler(async (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const { targetPath } = req.body;
+
+  const result = await cloneRepo(decodeURIComponent(repoFullName), targetPath);
+
+  if (result.success) {
+    // Update repo config with the new path
+    updateRepoConfig(decodeURIComponent(repoFullName), {
+      localPath: result.localPath,
+      autoCloned: true,
+    });
+
+    res.json({ success: true, localPath: result.localPath, message: result.message });
+  } else {
+    res.status(500).json({ success: false, error: result.message });
+  }
+}));
+
+// Detect port for a repo
+router.post('/config/repos/:repoFullName(*)/detect-port', (req: Request, res: Response) => {
   try {
     const { repoFullName } = req.params;
-    const decodedName = decodeURIComponent(repoFullName);
+    const repo = getRepoConfig(decodeURIComponent(repoFullName));
 
-    const repo = getRepoConfig(decodedName);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found in config' });
+    if (!repo || !repo.localPath) {
+      res.status(404).json({ error: 'Repo not found or no local path' });
       return;
     }
 
-    const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      res.status(400).json({ error: 'GITHUB_WEBHOOK_SECRET not configured' });
-      return;
+    const result = detectPortFromPackageJson(repo.localPath);
+
+    if (result) {
+      // Update repo config with detected port
+      updateRepoConfig(decodeURIComponent(repoFullName), {
+        detectedPort: result.port,
+        devPort: repo.devPort || result.port,
+      });
+
+      res.json({
+        success: true,
+        port: result.port,
+        confidence: result.confidence,
+        source: result.source,
+      });
+    } else {
+      res.json({
+        success: false,
+        error: 'Could not detect port',
+      });
     }
-
-    const baseUrl = getWebhookBaseUrl();
-    const payloadUrl = `${baseUrl}/webhook`;
-
-    const webhook = await ensureWebhook(decodedName, payloadUrl, webhookSecret);
-
-    // Update repo config with webhook ID
-    updateRepoConfig(decodedName, { webhookId: webhook.id });
-
-    res.json({ success: true, webhook });
   } catch (error) {
-    logError(`Create webhook error: ${error}`, 'API');
-    res.status(500).json({ error: `Failed to create webhook: ${error}` });
+    logError(`Detect port error: ${error}`, 'API');
+    res.status(500).json({ error: 'Failed to detect port' });
   }
 });
+
+// Reset repo to main branch
+router.post('/config/repos/:repoFullName(*)/reset-to-main', asyncHandler(async (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const repo = getRepoConfig(decodeURIComponent(repoFullName));
+
+  if (!repo || !repo.localPath) {
+    res.status(404).json({ error: 'Repo not found or no local path' });
+    return;
+  }
+
+  const { FileLogger } = await import('../logging/logger.js');
+  const logger = new FileLogger('/dev/null'); // Discard logs
+
+  const success = await resetToMain(repo.localPath, logger);
+
+  res.json({ success });
+}));
+
+// Create webhook for repo
+router.post('/config/repos/:repoFullName(*)/create-webhook', asyncHandler(async (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const decodedName = decodeURIComponent(repoFullName);
+
+  const repo = getRepoConfig(decodedName);
+  if (!repo) {
+    res.status(404).json({ error: 'Repo not found in config' });
+    return;
+  }
+
+  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    res.status(400).json({ error: 'GITHUB_WEBHOOK_SECRET not configured' });
+    return;
+  }
+
+  const baseUrl = getWebhookBaseUrl();
+  const payloadUrl = `${baseUrl}/webhook`;
+
+  const webhook = await ensureWebhook(decodedName, payloadUrl, webhookSecret);
+
+  // Update repo config with webhook ID
+  updateRepoConfig(decodedName, { webhookId: webhook.id });
+
+  res.json({ success: true, webhook });
+}));
 
 // Delete webhook for repo
-router.delete('/config/repos/:repoFullName(*)/webhook', async (req: Request, res: Response) => {
-  try {
-    const { repoFullName } = req.params;
-    const decodedName = decodeURIComponent(repoFullName);
+router.delete('/config/repos/:repoFullName(*)/webhook', asyncHandler(async (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const decodedName = decodeURIComponent(repoFullName);
 
-    const repo = getRepoConfig(decodedName);
-    if (!repo || !repo.webhookId) {
-      res.status(404).json({ error: 'No webhook configured for this repo' });
-      return;
-    }
-
-    await deleteWebhook(decodedName, repo.webhookId);
-    updateRepoConfig(decodedName, { webhookId: undefined });
-
-    res.json({ success: true });
-  } catch (error) {
-    logError(`Delete webhook error: ${error}`, 'API');
-    res.status(500).json({ error: `Failed to delete webhook: ${error}` });
+  const repo = getRepoConfig(decodedName);
+  if (!repo || !repo.webhookId) {
+    res.status(404).json({ error: 'No webhook configured for this repo' });
+    return;
   }
-});
+
+  await deleteWebhook(decodedName, repo.webhookId);
+  updateRepoConfig(decodedName, { webhookId: undefined });
+
+  res.json({ success: true });
+}));
 
 // Get/Set webhook base URL
 router.get('/config/webhook-url', (_req: Request, res: Response) => {
@@ -212,28 +325,70 @@ router.post('/config/webhook-url', (req: Request, res: Response) => {
   res.json({ success: true, url });
 });
 
-// List GitHub repos
-router.get('/github/repos', async (_req: Request, res: Response) => {
-  try {
-    const repos = await listUserRepos();
-    res.json(repos);
-  } catch (error) {
-    logError(`List GitHub repos error: ${error}`, 'API');
-    res.status(500).json({ error: `Failed to list repos: ${error}` });
+// Get/Set clone base directory
+router.get('/config/clone-base-dir', (_req: Request, res: Response) => {
+  res.json({ dir: getCloneBaseDir() });
+});
+
+router.post('/config/clone-base-dir', (req: Request, res: Response) => {
+  const { dir } = req.body;
+  if (!dir) {
+    res.status(400).json({ error: 'Directory is required' });
+    return;
+  }
+  setCloneBaseDir(dir);
+  res.json({ success: true, dir });
+});
+
+// Get/Set default build options
+router.get('/config/build-options', (_req: Request, res: Response) => {
+  res.json(getDefaultBuildOptions());
+});
+
+router.post('/config/build-options', (req: Request, res: Response) => {
+  const options = req.body as BuildOptions;
+  setDefaultBuildOptions(options);
+  res.json({ success: true, options: getDefaultBuildOptions() });
+});
+
+// Cache management
+router.get('/config/cache', (_req: Request, res: Response) => {
+  res.json({
+    enabled: isCacheEnabled(),
+    stats: getCacheStats(),
+  });
+});
+
+router.post('/config/cache/toggle', (req: Request, res: Response) => {
+  const { enabled } = req.body;
+  setCacheEnabled(!!enabled);
+  res.json({ success: true, enabled: isCacheEnabled() });
+});
+
+router.post('/config/cache/clear', (req: Request, res: Response) => {
+  const { repoFullName } = req.body;
+  if (repoFullName) {
+    const success = clearCache(repoFullName);
+    res.json({ success, repoFullName });
+  } else {
+    // Clear old caches
+    const deleted = cleanOldCaches(0); // Delete all
+    res.json({ success: true, deletedCount: deleted });
   }
 });
 
+// List GitHub repos
+router.get('/github/repos', asyncHandler(async (_req: Request, res: Response) => {
+  const repos = await listUserRepos();
+  res.json(repos);
+}));
+
 // List branches for a repo
-router.get('/github/repos/:repoFullName(*)/branches', async (req: Request, res: Response) => {
-  try {
-    const { repoFullName } = req.params;
-    const branches = await listBranches(decodeURIComponent(repoFullName));
-    res.json(branches);
-  } catch (error) {
-    logError(`List branches error: ${error}`, 'API');
-    res.status(500).json({ error: `Failed to list branches: ${error}` });
-  }
-});
+router.get('/github/repos/:repoFullName(*)/branches', asyncHandler(async (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const branches = await listBranches(decodeURIComponent(repoFullName));
+  res.json(branches);
+}));
 
 // Trigger manual run
 router.post('/trigger-run', (req: Request, res: Response) => {
@@ -318,6 +473,18 @@ router.get('/queue', (_req: Request, res: Response) => {
 router.get('/runs/:repoFullName(*)', (req: Request, res: Response) => {
   try {
     const { repoFullName } = req.params;
+    const { branch, limit } = req.query;
+
+    if (branch) {
+      const runs = getRunsByBranch(
+        decodeURIComponent(repoFullName),
+        String(branch),
+        limit ? parseInt(String(limit)) : 20
+      );
+      res.json(runs);
+      return;
+    }
+
     const repo = getRepoConfig(decodeURIComponent(repoFullName));
 
     if (!repo) {
@@ -329,6 +496,27 @@ router.get('/runs/:repoFullName(*)', (req: Request, res: Response) => {
   } catch (error) {
     logError(`Get runs error: ${error}`, 'API');
     res.status(500).json({ error: 'Failed to get runs' });
+  }
+});
+
+// Get run metadata (run.json)
+router.get('/runs/:repoFullName(*)/branches/:branch(*)/runs/:runId/metadata', (req: Request, res: Response) => {
+  try {
+    const { repoFullName, branch, runId } = req.params;
+    const safeName = decodeURIComponent(repoFullName).replace(/\//g, '_');
+    const safeBranch = decodeURIComponent(branch).replace(/\//g, '_');
+    const runJsonPath = join(process.cwd(), 'data', 'logs', safeName, safeBranch, runId, 'run.json');
+
+    if (!existsSync(runJsonPath)) {
+      res.status(404).json({ error: 'Run metadata not found' });
+      return;
+    }
+
+    const metadata = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
+    res.json(metadata);
+  } catch (error) {
+    logError(`Get run metadata error: ${error}`, 'API');
+    res.status(500).json({ error: 'Failed to get run metadata' });
   }
 });
 
@@ -468,15 +656,10 @@ router.post('/detect-profile', async (req: Request, res: Response) => {
         profile = 'node-service';
       }
 
-      // Try to detect port from scripts
-      const devScript = scripts.dev || scripts.start || '';
-      const portMatch = devScript.match(/--port[= ](\d+)|PORT=(\d+)|-p[= ]?(\d+)/);
-      if (portMatch) {
-        devPort = parseInt(portMatch[1] || portMatch[2] || portMatch[3]);
-      } else if (deps.vite) {
-        devPort = 5173;
-      } else if (deps['@angular/core']) {
-        devPort = 4200;
+      // Use smart port detection
+      const portResult = detectPortFromPackageJson(localPath);
+      if (portResult) {
+        devPort = portResult.port;
       }
     }
 
@@ -488,31 +671,21 @@ router.post('/detect-profile', async (req: Request, res: Response) => {
 });
 
 // Test Slack notification
-router.post('/test-slack', async (_req: Request, res: Response) => {
-  try {
-    const success = await sendTestNotification();
-    if (success) {
-      res.json({ success: true, message: 'Test notification sent' });
-    } else {
-      res.status(500).json({ success: false, error: 'Failed to send notification' });
-    }
-  } catch (error) {
-    logError(`Test Slack error: ${error}`, 'API');
-    res.status(500).json({ error: 'Failed to send test notification' });
+router.post('/test-slack', asyncHandler(async (_req: Request, res: Response) => {
+  const success = await sendTestNotification();
+  if (success) {
+    res.json({ success: true, message: 'Test notification sent' });
+  } else {
+    res.status(500).json({ success: false, error: 'Failed to send notification' });
   }
-});
+}));
 
 // Test Tailscale
-router.get('/test-tailscale', async (_req: Request, res: Response) => {
-  try {
-    const ip = await getTailscaleIp();
-    const running = await isTailscaleRunning();
-    res.json({ ip, running });
-  } catch (error) {
-    logError(`Test Tailscale error: ${error}`, 'API');
-    res.status(500).json({ error: 'Failed to test Tailscale' });
-  }
-});
+router.get('/test-tailscale', asyncHandler(async (_req: Request, res: Response) => {
+  const ip = await getTailscaleIp();
+  const running = await isTailscaleRunning();
+  res.json({ ip, running });
+}));
 
 // Cleanup old data
 router.post('/cleanup', (req: Request, res: Response) => {
@@ -527,52 +700,81 @@ router.post('/cleanup', (req: Request, res: Response) => {
 });
 
 // Admin cleanup endpoint (alias for /cleanup with more options)
-router.post('/admin/cleanup', (req: Request, res: Response) => {
-  try {
-    const {
-      maxAgeDays = 7,
-      dryRun = false,
-      resetToMain = false
-    } = req.body;
+router.post('/admin/cleanup', asyncHandler(async (req: Request, res: Response) => {
+  const {
+    maxAgeDays = 7,
+    dryRun = false,
+    resetToMain: shouldResetToMain = false,
+    cleanOrphanedClones = false,
+  } = req.body;
 
-    info(`Admin cleanup requested: maxAgeDays=${maxAgeDays}, dryRun=${dryRun}, resetToMain=${resetToMain}`, 'API');
+  info(`Admin cleanup requested: maxAgeDays=${maxAgeDays}, dryRun=${dryRun}, resetToMain=${shouldResetToMain}`, 'API');
 
-    if (dryRun) {
-      // In dry run mode, just report what would be cleaned
-      res.json({
-        success: true,
-        dryRun: true,
-        message: `Would clean up data older than ${maxAgeDays} days`,
-        resetToMain
-      });
-      return;
-    }
-
-    const result = cleanupOldData(maxAgeDays);
-
-    info(`Cleanup completed: ${result.logsDeleted} logs, ${result.screenshotsDeleted} screenshots deleted`, 'API');
-
+  if (dryRun) {
+    // In dry run mode, just report what would be cleaned
+    const cacheStats = getCacheStats();
     res.json({
       success: true,
-      ...result,
-      resetToMain: resetToMain ? 'Feature not implemented' : false
+      dryRun: true,
+      message: `Would clean up data older than ${maxAgeDays} days`,
+      cacheStats,
+      resetToMain: shouldResetToMain,
     });
-  } catch (error) {
-    logError(`Admin cleanup error: ${error}`, 'API');
-    res.status(500).json({ error: 'Failed to cleanup' });
+    return;
   }
-});
+
+  const result = cleanupOldData(maxAgeDays);
+
+  // Clean old caches
+  const deletedCaches = cleanOldCaches(maxAgeDays);
+
+  // Reset repos to main if requested
+  let resetResults: { repo: string; success: boolean }[] = [];
+  if (shouldResetToMain) {
+    const repos = getConfigs();
+    const { FileLogger } = await import('../logging/logger.js');
+
+    for (const repo of repos) {
+      if (repo.localPath && existsSync(repo.localPath)) {
+        const logger = new FileLogger('/dev/null');
+        const success = await resetToMain(repo.localPath, logger);
+        resetResults.push({ repo: repo.repoFullName, success });
+      }
+    }
+  }
+
+  info(`Cleanup completed: ${result.logsDeleted} logs, ${result.screenshotsDeleted} screenshots, ${deletedCaches} caches deleted`, 'API');
+
+  res.json({
+    success: true,
+    ...result,
+    deletedCaches,
+    resetResults: shouldResetToMain ? resetResults : undefined,
+  });
+}));
 
 // Clear build queue
 router.post('/admin/clear-queue', (_req: Request, res: Response) => {
   try {
-    const { clearQueue: clearQueueFn } = require('../build/queue.js');
-    clearQueueFn();
+    clearQueue();
     res.json({ success: true, message: 'Queue cleared' });
   } catch (error) {
     logError(`Clear queue error: ${error}`, 'API');
     res.status(500).json({ error: 'Failed to clear queue' });
   }
+});
+
+// Open folder (returns path for client to handle)
+router.get('/open-folder', (req: Request, res: Response) => {
+  const { path: folderPath } = req.query;
+
+  if (!folderPath || !existsSync(String(folderPath))) {
+    res.status(404).json({ error: 'Path not found' });
+    return;
+  }
+
+  // Just return the path - the client can use this
+  res.json({ path: folderPath });
 });
 
 export default router;

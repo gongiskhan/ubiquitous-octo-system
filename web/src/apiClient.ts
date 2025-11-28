@@ -7,7 +7,28 @@ export interface RepoConfig {
   profile: 'ios-capacitor' | 'web-generic' | 'node-service' | 'android-capacitor' | 'tauri-app' | 'custom';
   webhookId?: number;
   devPort?: number;
+  detectedPort?: number;
+  autoCloned?: boolean;
+  buildOptions?: BuildOptions;
   lastRuns?: RunRecord[];
+}
+
+export interface BuildOptions {
+  buildTimeout?: number;
+  runtimeTimeout?: number;
+  screenshotTimeout?: number;
+  screenshotDelay?: number;
+  simulatorDevice?: string;
+  androidAvd?: string;
+  envVars?: Record<string, string>;
+}
+
+export interface DiffResult {
+  hasDiff: boolean;
+  diffPercentage: number;
+  diffPath?: string;
+  previousRunId?: string;
+  error?: string;
 }
 
 export interface RunRecord {
@@ -19,7 +40,37 @@ export interface RunRecord {
   buildLogPath?: string;
   runtimeLogPath?: string;
   networkLogPath?: string;
+  runJsonPath?: string;
   errorMessage?: string;
+  diffResult?: DiffResult;
+  durations?: {
+    total?: number;
+    git?: number;
+    install?: number;
+    build?: number;
+    screenshot?: number;
+  };
+  errorSummary?: {
+    errorLines: string[];
+    warningCount: number;
+  };
+}
+
+export interface RunMetadata {
+  repoFullName: string;
+  branch: string;
+  runId: string;
+  timestamp: string;
+  status: 'success' | 'failure' | 'running';
+  profile: string;
+  durations?: RunRecord['durations'];
+  screenshotPath?: string;
+  diffResult?: DiffResult;
+  errorMessage?: string;
+  errorSummary?: RunRecord['errorSummary'];
+  buildLogPath: string;
+  runtimeLogPath?: string;
+  networkLogPath?: string;
 }
 
 export interface GitHubRepo {
@@ -37,6 +88,34 @@ export interface GitHubBranch {
   protected: boolean;
 }
 
+export interface MachineInfo {
+  platform: string;
+  arch: string;
+  hostname: string;
+  cpuCount: number;
+  cpuModel: string;
+  totalMemoryGB: number;
+  freeMemoryGB: number;
+  memoryUsagePercent: number;
+  uptime: number;
+}
+
+export interface ConfigInfo {
+  cloneBaseDir: string;
+  cacheEnabled: boolean;
+  defaultBuildOptions: BuildOptions;
+}
+
+export interface CacheStats {
+  totalSize: number;
+  cacheCount: number;
+  caches: Array<{
+    repo: string;
+    size: number;
+    createdAt: string;
+  }>;
+}
+
 export interface Status {
   tailscaleIp: string | null;
   tailscaleRunning: boolean;
@@ -49,6 +128,8 @@ export interface Status {
   githubTokenSet: boolean;
   webhookSecretSet: boolean;
   slackConfigured: boolean;
+  machine?: MachineInfo;
+  config?: ConfigInfo;
 }
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
@@ -99,10 +180,30 @@ export const api = {
         body: JSON.stringify(updates),
       }
     ),
-  deleteRepo: (repoFullName: string) =>
+  deleteRepo: (repoFullName: string, deleteLocalClone = false) =>
     fetchJson<{ success: boolean }>(
-      `/config/repos/${encodeURIComponent(repoFullName)}`,
+      `/config/repos/${encodeURIComponent(repoFullName)}${deleteLocalClone ? '?deleteLocalClone=true' : ''}`,
       { method: 'DELETE' }
+    ),
+
+  // Repo operations
+  cloneRepo: (repoFullName: string, targetPath?: string) =>
+    fetchJson<{ success: boolean; localPath?: string; message?: string; error?: string }>(
+      `/config/repos/${encodeURIComponent(repoFullName)}/clone`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ targetPath }),
+      }
+    ),
+  detectPort: (repoFullName: string) =>
+    fetchJson<{ success: boolean; port?: number; confidence?: string; source?: string; error?: string }>(
+      `/config/repos/${encodeURIComponent(repoFullName)}/detect-port`,
+      { method: 'POST' }
+    ),
+  resetToMain: (repoFullName: string) =>
+    fetchJson<{ success: boolean }>(
+      `/config/repos/${encodeURIComponent(repoFullName)}/reset-to-main`,
+      { method: 'POST' }
     ),
 
   // Webhooks
@@ -125,6 +226,35 @@ export const api = {
       body: JSON.stringify({ url }),
     }),
 
+  // Clone base directory
+  getCloneBaseDir: () => fetchJson<{ dir: string }>('/config/clone-base-dir'),
+  setCloneBaseDir: (dir: string) =>
+    fetchJson<{ success: boolean; dir: string }>('/config/clone-base-dir', {
+      method: 'POST',
+      body: JSON.stringify({ dir }),
+    }),
+
+  // Default build options
+  getBuildOptions: () => fetchJson<BuildOptions>('/config/build-options'),
+  setBuildOptions: (options: BuildOptions) =>
+    fetchJson<{ success: boolean; options: BuildOptions }>('/config/build-options', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    }),
+
+  // Cache management
+  getCacheStatus: () => fetchJson<{ enabled: boolean; stats: CacheStats }>('/config/cache'),
+  toggleCache: (enabled: boolean) =>
+    fetchJson<{ success: boolean; enabled: boolean }>('/config/cache/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+  clearCache: (repoFullName?: string) =>
+    fetchJson<{ success: boolean; deletedCount?: number; repoFullName?: string }>('/config/cache/clear', {
+      method: 'POST',
+      body: JSON.stringify({ repoFullName }),
+    }),
+
   // GitHub
   getGitHubRepos: () => fetchJson<GitHubRepo[]>('/github/repos'),
   getGitHubBranches: (repoFullName: string) =>
@@ -138,13 +268,28 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ repoFullName, branch }),
     }),
+  triggerRunMain: (repoFullName: string) =>
+    fetchJson<{ success: boolean; message: string }>('/trigger-run-main', {
+      method: 'POST',
+      body: JSON.stringify({ repoFullName }),
+    }),
 
   // Queue
   getQueue: () => fetchJson<Status['queue']>('/queue'),
+  clearQueue: () => fetchJson<{ success: boolean; message: string }>('/admin/clear-queue', { method: 'POST' }),
 
   // Runs
-  getRuns: (repoFullName: string) =>
-    fetchJson<RunRecord[]>(`/runs/${encodeURIComponent(repoFullName)}`),
+  getRuns: (repoFullName: string, branch?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (branch) params.set('branch', branch);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return fetchJson<RunRecord[]>(`/runs/${encodeURIComponent(repoFullName)}${query ? '?' + query : ''}`);
+  },
+  getRunMetadata: (repoFullName: string, branch: string, runId: string) =>
+    fetchJson<RunMetadata>(
+      `/runs/${encodeURIComponent(repoFullName)}/branches/${encodeURIComponent(branch)}/runs/${runId}/metadata`
+    ),
 
   // Logs
   getLogBranches: (repoFullName: string) =>
@@ -190,8 +335,36 @@ export const api = {
         body: JSON.stringify({ maxAgeDays }),
       }
     ),
+  adminCleanup: (options: {
+    maxAgeDays?: number;
+    dryRun?: boolean;
+    resetToMain?: boolean;
+    cleanOrphanedClones?: boolean;
+  }) =>
+    fetchJson<{
+      success: boolean;
+      logsDeleted?: number;
+      screenshotsDeleted?: number;
+      deletedCaches?: number;
+      resetResults?: Array<{ repo: string; success: boolean }>;
+    }>('/admin/cleanup', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    }),
 };
 
 export function getScreenshotUrl(repoFullName: string, branch: string): string {
   return `/preview/${encodeURIComponent(repoFullName)}/${encodeURIComponent(branch)}.png`;
+}
+
+export function getRunScreenshotUrl(repoFullName: string, branch: string, runId: string): string {
+  const safeName = repoFullName.replace(/\//g, '_');
+  const safeBranch = branch.replace(/\//g, '_');
+  return `/data/screenshots/${safeName}/${safeBranch}/${runId}.png`;
+}
+
+export function getDiffScreenshotUrl(repoFullName: string, branch: string, runId: string): string {
+  const safeName = repoFullName.replace(/\//g, '_');
+  const safeBranch = branch.replace(/\//g, '_');
+  return `/data/screenshots/${safeName}/${safeBranch}/${runId}_diff.png`;
 }

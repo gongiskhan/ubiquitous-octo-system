@@ -87,17 +87,17 @@ router.post('/', (req: Request, res: Response) => {
     return;
   }
 
-  // Only handle push events
-  if (event !== 'push') {
-    info(`Ignoring non-push event: ${event}`, 'Webhook');
-    res.status(200).json({ message: `Event ${event} ignored` });
-    return;
-  }
-
   // Handle ping event (sent when webhook is created)
   if (event === 'ping') {
     info('Received ping event', 'Webhook');
     res.status(200).json({ message: 'pong' });
+    return;
+  }
+
+  // Only handle push events
+  if (event !== 'push') {
+    info(`Ignoring non-push event: ${event}`, 'Webhook');
+    res.status(200).json({ message: `Event ${event} ignored` });
     return;
   }
 

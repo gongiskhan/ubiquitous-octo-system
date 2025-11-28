@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import os from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = join(__dirname, '..', 'config', 'config.json');
@@ -14,6 +15,13 @@ export type ProfileType =
   | 'tauri-app'
   | 'custom';
 
+export interface DiffResult {
+  diffPercentage: number;
+  diffPixelCount: number;
+  diffImagePath?: string;
+  previousScreenshotPath?: string;
+}
+
 export interface RunRecord {
   branch: string;
   timestamp: string;
@@ -23,7 +31,30 @@ export interface RunRecord {
   buildLogPath?: string;
   runtimeLogPath?: string;
   networkLogPath?: string;
+  runJsonPath?: string;
   errorMessage?: string;
+  diffResult?: DiffResult;
+  durations?: {
+    total?: number;
+    git?: number;
+    install?: number;
+    build?: number;
+    screenshot?: number;
+  };
+  errorSummary?: {
+    errorLines: string[];
+    warningCount: number;
+  };
+}
+
+export interface BuildOptions {
+  buildTimeout?: number;
+  runtimeTimeout?: number;
+  screenshotTimeout?: number;
+  screenshotDelay?: number;
+  simulatorDevice?: string;
+  androidAvd?: string;
+  envVars?: Record<string, string>;
 }
 
 export interface RepoConfig {
@@ -33,13 +64,19 @@ export interface RepoConfig {
   profile: ProfileType;
   webhookId?: number;
   devPort?: number;
+  detectedPort?: number;
   lastRuns?: RunRecord[];
+  buildOptions?: BuildOptions;
+  autoCloned?: boolean;
 }
 
 export interface AppConfig {
   repos: RepoConfig[];
   webhookBaseUrl: string;
   defaultPort: number;
+  cloneBaseDir: string;
+  cacheEnabled: boolean;
+  defaultBuildOptions: BuildOptions;
 }
 
 let configCache: AppConfig | null = null;
@@ -51,11 +88,23 @@ function ensureConfigDir(): void {
   }
 }
 
+function getDefaultCloneDir(): string {
+  return join(os.homedir(), 'branchrunner-repos');
+}
+
 function getDefaultConfig(): AppConfig {
   return {
     repos: [],
     webhookBaseUrl: 'https://YOUR-FUNNEL-URL',
     defaultPort: 3000,
+    cloneBaseDir: getDefaultCloneDir(),
+    cacheEnabled: true,
+    defaultBuildOptions: {
+      buildTimeout: 240000,
+      runtimeTimeout: 60000,
+      screenshotTimeout: 10000,
+      screenshotDelay: 2000,
+    },
   };
 }
 
@@ -75,7 +124,11 @@ export function loadConfig(): AppConfig {
 
   try {
     const content = readFileSync(CONFIG_PATH, 'utf-8');
-    configCache = JSON.parse(content) as AppConfig;
+    const loaded = JSON.parse(content) as Partial<AppConfig>;
+    configCache = {
+      ...getDefaultConfig(),
+      ...loaded,
+    };
     return configCache;
   } catch (error) {
     console.error('Error loading config, using defaults:', error);
@@ -86,7 +139,6 @@ export function loadConfig(): AppConfig {
 
 function saveConfigImmediate(): void {
   if (!configCache) return;
-
   ensureConfigDir();
   writeFileSync(CONFIG_PATH, JSON.stringify(configCache, null, 2));
 }
@@ -177,8 +229,8 @@ export function addRunRecord(repoFullName: string, run: RunRecord): void {
 
   repo.lastRuns.unshift(run);
 
-  if (repo.lastRuns.length > 50) {
-    repo.lastRuns = repo.lastRuns.slice(0, 50);
+  if (repo.lastRuns.length > 100) {
+    repo.lastRuns = repo.lastRuns.slice(0, 100);
   }
 
   saveConfig();
@@ -214,6 +266,39 @@ export function setWebhookBaseUrl(url: string): void {
   saveConfig();
 }
 
+export function getCloneBaseDir(): string {
+  const config = loadConfig();
+  return config.cloneBaseDir;
+}
+
+export function setCloneBaseDir(dir: string): void {
+  const config = loadConfig();
+  config.cloneBaseDir = dir;
+  saveConfig();
+}
+
+export function isCacheEnabled(): boolean {
+  const config = loadConfig();
+  return config.cacheEnabled;
+}
+
+export function setCacheEnabled(enabled: boolean): void {
+  const config = loadConfig();
+  config.cacheEnabled = enabled;
+  saveConfig();
+}
+
+export function getDefaultBuildOptions(): BuildOptions {
+  const config = loadConfig();
+  return config.defaultBuildOptions;
+}
+
+export function setDefaultBuildOptions(options: BuildOptions): void {
+  const config = loadConfig();
+  config.defaultBuildOptions = { ...config.defaultBuildOptions, ...options };
+  saveConfig();
+}
+
 export function getLatestRun(
   repoFullName: string,
   branch?: string
@@ -228,4 +313,42 @@ export function getLatestRun(
   }
 
   return repo.lastRuns[0];
+}
+
+export function getRunsByBranch(
+  repoFullName: string,
+  branch: string,
+  limit: number = 20
+): RunRecord[] {
+  const repo = getRepoConfig(repoFullName);
+  if (!repo || !repo.lastRuns) {
+    return [];
+  }
+
+  return repo.lastRuns
+    .filter((r) => r.branch === branch)
+    .slice(0, limit);
+}
+
+export function getPreviousSuccessfulRun(
+  repoFullName: string,
+  branch: string,
+  excludeRunId: string
+): RunRecord | undefined {
+  const repo = getRepoConfig(repoFullName);
+  if (!repo || !repo.lastRuns) {
+    return undefined;
+  }
+
+  return repo.lastRuns.find(
+    (r) => r.branch === branch && r.status === 'success' && r.runId !== excludeRunId && r.screenshotPath
+  );
+}
+
+export function getEffectiveBuildOptions(repo: RepoConfig): BuildOptions {
+  const config = loadConfig();
+  return {
+    ...config.defaultBuildOptions,
+    ...(repo.buildOptions || {}),
+  };
 }

@@ -1,3 +1,5 @@
+import type { BuildOptions, DiffResult } from '../../config.js';
+
 export interface ProfileContext {
   repoFullName: string;
   branch: string;
@@ -6,6 +8,15 @@ export interface ProfileContext {
   logsDir: string;
   screenshotsDir: string;
   devPort?: number;
+  buildOptions: BuildOptions;
+}
+
+export interface Durations {
+  total?: number;
+  git?: number;
+  install?: number;
+  build?: number;
+  screenshot?: number;
 }
 
 export interface ProfileResult {
@@ -15,6 +26,8 @@ export interface ProfileResult {
   runtimeLogPath?: string;
   networkLogPath?: string;
   errorMessage?: string;
+  durations?: Durations;
+  diffResult?: DiffResult;
 }
 
 export type ProfileRunner = (ctx: ProfileContext) => Promise<ProfileResult>;
