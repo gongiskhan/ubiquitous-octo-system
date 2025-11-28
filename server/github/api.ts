@@ -41,6 +41,15 @@ export interface WebhookInfo {
   };
 }
 
+function isGitHubError(error: unknown): error is { status: number; message: string } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    typeof (error as { status: unknown }).status === 'number'
+  );
+}
+
 export async function listUserRepos(): Promise<RepoInfo[]> {
   const octokit = getOctokit();
 
@@ -192,6 +201,25 @@ export async function createWebhook(
     info(`Created webhook ${webhook.id} for ${repoFullName}`, 'GitHub');
     return webhook;
   } catch (err) {
+    // Handle specific GitHub errors
+    if (isGitHubError(err)) {
+      if (err.status === 422) {
+        // Validation failed - likely webhook already exists or invalid URL
+        logError(`Webhook validation failed for ${repoFullName}: ${err.message}`, 'GitHub');
+        throw new Error(`Webhook creation failed (422): ${err.message}. A webhook with this URL may already exist.`);
+      }
+      if (err.status === 409) {
+        // Conflict - webhook already exists
+        logError(`Webhook conflict for ${repoFullName}: ${err.message}`, 'GitHub');
+        throw new Error(`Webhook already exists (409): ${err.message}`);
+      }
+      if (err.status === 404) {
+        throw new Error(`Repository not found or no permission: ${repoFullName}`);
+      }
+      if (err.status === 403) {
+        throw new Error(`Permission denied. Ensure your token has admin:repo_hook scope.`);
+      }
+    }
     logError(`Failed to create webhook for ${repoFullName}: ${err}`, 'GitHub');
     throw err;
   }
@@ -213,6 +241,11 @@ export async function deleteWebhook(
 
     info(`Deleted webhook ${webhookId} for ${repoFullName}`, 'GitHub');
   } catch (err) {
+    if (isGitHubError(err) && err.status === 404) {
+      // Webhook already deleted or doesn't exist
+      warn(`Webhook ${webhookId} not found for ${repoFullName}, may already be deleted`, 'GitHub');
+      return;
+    }
     logError(`Failed to delete webhook ${webhookId} for ${repoFullName}: ${err}`, 'GitHub');
     throw err;
   }

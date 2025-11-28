@@ -1,14 +1,65 @@
 import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { chromium, type Browser, type Page } from 'playwright';
 import { FileLogger } from '../../logging/logger.js';
 import { runCommand, spawnProcess } from '../runner.js';
 import type { ProfileContext, ProfileResult } from './profileTypes.js';
 import type { ChildProcess } from 'child_process';
 
+const execAsync = promisify(exec);
+
 const DEFAULT_PORTS = [3000, 5173, 4200, 8080, 8000];
 const SERVER_STARTUP_DELAY = 5000; // 5 seconds
 const PAGE_LOAD_TIMEOUT = 30000; // 30 seconds
+
+async function killProcessOnPort(port: number): Promise<void> {
+  try {
+    // Try lsof first (macOS/Linux)
+    const { stdout } = await execAsync(`lsof -ti:${port} 2>/dev/null || true`);
+    const pids = stdout.trim().split('\n').filter(Boolean);
+
+    for (const pid of pids) {
+      try {
+        await execAsync(`kill -9 ${pid} 2>/dev/null || true`);
+      } catch {
+        // Ignore kill errors
+      }
+    }
+  } catch {
+    // Ignore errors - port may not be in use
+  }
+}
+
+function killProcessTree(proc: ChildProcess): void {
+  if (!proc.pid) return;
+
+  try {
+    // Kill entire process group
+    process.kill(-proc.pid, 'SIGTERM');
+  } catch {
+    try {
+      // Fallback to killing just the process
+      proc.kill('SIGTERM');
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  // Force kill after a short delay
+  setTimeout(() => {
+    try {
+      if (proc.pid) process.kill(-proc.pid, 'SIGKILL');
+    } catch {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        // Ignore errors
+      }
+    }
+  }, 2000);
+}
 
 interface PackageJson {
   scripts?: Record<string, string>;
@@ -176,11 +227,15 @@ export async function runWebGeneric(ctx: ProfileContext): Promise<ProfileResult>
     buildLog.appendWithTimestamp('Screenshot captured successfully');
 
     // Cleanup
+    buildLog.appendWithTimestamp('--- Cleaning up ---');
     await browser.close();
     browser = null;
 
-    devServer.kill('SIGTERM');
+    killProcessTree(devServer);
     devServer = null;
+
+    // Also kill by port as a safety measure
+    await killProcessOnPort(port);
 
     buildLog.appendWithTimestamp('--- Build completed successfully ---');
 
@@ -203,7 +258,7 @@ export async function runWebGeneric(ctx: ProfileContext): Promise<ProfileResult>
       errorMessage: errMsg,
     };
   } finally {
-    // Ensure cleanup
+    // Ensure cleanup even on error
     if (browser) {
       try {
         await browser.close();
@@ -214,11 +269,15 @@ export async function runWebGeneric(ctx: ProfileContext): Promise<ProfileResult>
 
     if (devServer) {
       try {
-        devServer.kill('SIGTERM');
+        killProcessTree(devServer);
       } catch {
         // Ignore cleanup errors
       }
     }
+
+    // Final safety: kill anything on the port
+    const finalPort = devPort || detectDevScript(localPath)?.port || 3000;
+    await killProcessOnPort(finalPort);
   }
 }
 

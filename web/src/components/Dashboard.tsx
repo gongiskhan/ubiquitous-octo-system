@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { api, RepoConfig, getScreenshotUrl } from '../apiClient';
+import { useState, useEffect, useCallback } from 'react';
+import { api, RepoConfig, getScreenshotUrl, Status } from '../apiClient';
+
+const AUTO_REFRESH_INTERVAL = 5000; // 5 seconds
 
 const styles = {
   container: {
@@ -110,30 +112,48 @@ const styles = {
 
 function Dashboard() {
   const [repos, setRepos] = useState<RepoConfig[]>([]);
+  const [queueStatus, setQueueStatus] = useState<Status['queue'] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [triggeringRepo, setTriggeringRepo] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadRepos();
-  }, []);
-
-  async function loadRepos() {
+  const loadRepos = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
-      const data = await api.getRepos();
-      setRepos(data);
+      if (showLoading) setLoading(true);
+      else setRefreshing(true);
+
+      const [reposData, statusData] = await Promise.all([
+        api.getRepos(),
+        api.getQueue()
+      ]);
+
+      setRepos(reposData);
+      setQueueStatus(statusData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load repos');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    loadRepos();
+
+    // Auto-refresh when queue is processing
+    const interval = setInterval(() => {
+      loadRepos(false);
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => clearInterval(interval);
+  }, [loadRepos]);
 
   async function toggleEnabled(repo: RepoConfig) {
     try {
       await api.updateRepo(repo.repoFullName, { enabled: !repo.enabled });
-      loadRepos();
+      loadRepos(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update repo');
     }
@@ -141,11 +161,14 @@ function Dashboard() {
 
   async function runMain(repo: RepoConfig) {
     try {
+      setTriggeringRepo(repo.repoFullName);
       await api.triggerRun(repo.repoFullName, 'main');
-      // Reload after a moment to see the queued status
-      setTimeout(loadRepos, 500);
+      // Reload immediately to see the queued status
+      await loadRepos(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to trigger run');
+    } finally {
+      setTriggeringRepo(null);
     }
   }
 
@@ -154,13 +177,31 @@ function Dashboard() {
     return repo.lastRuns[0];
   }
 
+  function isRepoInQueue(repoFullName: string): boolean {
+    if (!queueStatus) return false;
+    if (queueStatus.currentJob?.repoFullName === repoFullName) return true;
+    return queueStatus.queuedJobs.some(j => j.repoFullName === repoFullName);
+  }
+
+  function isRepoRunning(repoFullName: string): boolean {
+    return queueStatus?.currentJob?.repoFullName === repoFullName;
+  }
+
   function formatTime(timestamp: string) {
     const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+
+    // Show relative time for recent runs
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+
     return date.toLocaleString();
   }
 
   if (loading) {
-    return <div style={styles.loading}>Loading...</div>;
+    return <div style={styles.loading}>Loading dashboard...</div>;
   }
 
   if (repos.length === 0) {
@@ -174,33 +215,82 @@ function Dashboard() {
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.title}>Dashboard</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <h2 style={{ ...styles.title, marginBottom: 0 }}>Dashboard</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {refreshing && <span style={{ color: '#666', fontSize: '0.85rem' }}>Refreshing...</span>}
+          {queueStatus && queueStatus.queueLength > 0 && (
+            <span style={{
+              background: '#fef3c7',
+              color: '#92400e',
+              padding: '0.25rem 0.75rem',
+              borderRadius: '4px',
+              fontSize: '0.85rem'
+            }}>
+              Queue: {queueStatus.queueLength} job{queueStatus.queueLength !== 1 ? 's' : ''}
+              {queueStatus.isProcessing && ' (running)'}
+            </span>
+          )}
+          <button
+            style={{ ...styles.button, ...styles.secondaryButton }}
+            onClick={() => loadRepos(false)}
+            disabled={refreshing}
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
 
       {error && (
         <div style={{ background: '#fee2e2', color: '#dc2626', padding: '1rem', borderRadius: '4px', marginBottom: '1rem' }}>
           {error}
+          <button
+            style={{ marginLeft: '1rem', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => setError(null)}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       <div style={styles.grid}>
         {repos.map((repo) => {
           const latestRun = getLatestRun(repo);
+          const inQueue = isRepoInQueue(repo.repoFullName);
+          const running = isRepoRunning(repo.repoFullName);
+          const triggering = triggeringRepo === repo.repoFullName;
 
           return (
-            <div key={repo.repoFullName} style={styles.card}>
+            <div key={repo.repoFullName} style={{
+              ...styles.card,
+              ...(running ? { border: '2px solid #f59e0b', boxShadow: '0 0 10px rgba(245, 158, 11, 0.3)' } : {}),
+              ...(inQueue && !running ? { border: '2px solid #3b82f6' } : {})
+            }}>
               <div style={styles.cardHeader}>
                 <span style={styles.repoName}>{repo.repoFullName}</span>
-                {latestRun && (
-                  <span style={styles.badge(latestRun.status)}>
-                    {latestRun.status.toUpperCase()}
-                  </span>
-                )}
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {running && (
+                    <span style={{ ...styles.badge('running'), background: '#fef3c7', color: '#92400e' }}>
+                      RUNNING
+                    </span>
+                  )}
+                  {inQueue && !running && (
+                    <span style={{ ...styles.badge('queued'), background: '#dbeafe', color: '#1e40af' }}>
+                      QUEUED
+                    </span>
+                  )}
+                  {latestRun && !running && (
+                    <span style={styles.badge(latestRun.status)}>
+                      {latestRun.status.toUpperCase()}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div style={styles.cardBody}>
                 {latestRun?.screenshotPath ? (
                   <img
-                    src={getScreenshotUrl(repo.repoFullName, latestRun.branch)}
+                    src={getScreenshotUrl(repo.repoFullName, latestRun.branch) + `?t=${Date.now()}`}
                     alt="Latest screenshot"
                     style={styles.screenshot}
                     onError={(e) => {
@@ -208,23 +298,26 @@ function Dashboard() {
                     }}
                   />
                 ) : (
-                  <div style={styles.noScreenshot}>No screenshot</div>
+                  <div style={styles.noScreenshot}>
+                    {running ? 'Building...' : 'No screenshot'}
+                  </div>
                 )}
 
                 <div style={styles.info}>
                   <strong>Profile:</strong> {repo.profile}
                 </div>
-                <div style={styles.info}>
-                  <strong>Path:</strong> {repo.localPath}
+                <div style={styles.info} title={repo.localPath}>
+                  <strong>Path:</strong> {repo.localPath.length > 40 ? '...' + repo.localPath.slice(-37) : repo.localPath}
                 </div>
                 {latestRun && (
                   <>
                     <div style={styles.info}>
-                      <strong>Last run:</strong> {latestRun.branch} at {formatTime(latestRun.timestamp)}
+                      <strong>Last run:</strong> {latestRun.branch} - {formatTime(latestRun.timestamp)}
                     </div>
                     {latestRun.errorMessage && (
-                      <div style={{ ...styles.info, color: '#dc2626' }}>
-                        <strong>Error:</strong> {latestRun.errorMessage}
+                      <div style={{ ...styles.info, color: '#dc2626' }} title={latestRun.errorMessage}>
+                        <strong>Error:</strong> {latestRun.errorMessage.slice(0, 50)}
+                        {latestRun.errorMessage.length > 50 ? '...' : ''}
                       </div>
                     )}
                   </>
@@ -233,11 +326,16 @@ function Dashboard() {
 
               <div style={styles.cardFooter}>
                 <button
-                  style={{ ...styles.button, ...styles.primaryButton }}
+                  style={{
+                    ...styles.button,
+                    ...styles.primaryButton,
+                    opacity: (!repo.enabled || inQueue || triggering) ? 0.6 : 1,
+                    cursor: (!repo.enabled || inQueue || triggering) ? 'not-allowed' : 'pointer'
+                  }}
                   onClick={() => runMain(repo)}
-                  disabled={!repo.enabled}
+                  disabled={!repo.enabled || inQueue || triggering}
                 >
-                  Run main
+                  {triggering ? 'Queueing...' : running ? 'Running...' : inQueue ? 'Queued' : 'Run main'}
                 </button>
                 <div style={styles.toggle}>
                   <label>

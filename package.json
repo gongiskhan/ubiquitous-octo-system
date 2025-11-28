@@ -11,7 +11,10 @@
     "build:web": "cd web && npm run build",
     "build": "npm run build:server && npm run build:web",
     "start": "node dist/server/index.js",
-    "postinstall": "cd web && npm install"
+    "postinstall": "cd web && npm install",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@octokit/rest": "^20.0.2",
@@ -25,7 +28,8 @@
     "@types/node": "^20.10.5",
     "concurrently": "^8.2.2",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
   },
   "engines": {
     "node": ">=18.0.0"

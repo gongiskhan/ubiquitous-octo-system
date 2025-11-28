@@ -272,10 +272,41 @@ router.post('/trigger-run', (req: Request, res: Response) => {
   }
 });
 
-// Shortcut for triggering main
+// Shortcut for triggering main branch
 router.post('/trigger-run-main', (req: Request, res: Response) => {
-  req.body.branch = 'main';
-  return router.handle(req, res, () => {});
+  try {
+    const { repoFullName } = req.body;
+
+    if (!repoFullName) {
+      res.status(400).json({ error: 'repoFullName is required' });
+      return;
+    }
+
+    const repo = getRepoConfig(repoFullName);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not configured' });
+      return;
+    }
+
+    if (!repo.enabled) {
+      res.status(400).json({ error: 'Repo is disabled' });
+      return;
+    }
+
+    enqueue({
+      repoFullName,
+      branch: 'main',
+      queuedAt: new Date().toISOString(),
+      trigger: 'manual',
+    });
+
+    info(`Manual run triggered for ${repoFullName}/main`, 'API');
+
+    res.json({ success: true, message: `Build queued for ${repoFullName}/main` });
+  } catch (error) {
+    logError(`Trigger run-main error: ${error}`, 'API');
+    res.status(500).json({ error: 'Failed to trigger run' });
+  }
 });
 
 // Get queue status
@@ -492,6 +523,55 @@ router.post('/cleanup', (req: Request, res: Response) => {
   } catch (error) {
     logError(`Cleanup error: ${error}`, 'API');
     res.status(500).json({ error: 'Failed to cleanup' });
+  }
+});
+
+// Admin cleanup endpoint (alias for /cleanup with more options)
+router.post('/admin/cleanup', (req: Request, res: Response) => {
+  try {
+    const {
+      maxAgeDays = 7,
+      dryRun = false,
+      resetToMain = false
+    } = req.body;
+
+    info(`Admin cleanup requested: maxAgeDays=${maxAgeDays}, dryRun=${dryRun}, resetToMain=${resetToMain}`, 'API');
+
+    if (dryRun) {
+      // In dry run mode, just report what would be cleaned
+      res.json({
+        success: true,
+        dryRun: true,
+        message: `Would clean up data older than ${maxAgeDays} days`,
+        resetToMain
+      });
+      return;
+    }
+
+    const result = cleanupOldData(maxAgeDays);
+
+    info(`Cleanup completed: ${result.logsDeleted} logs, ${result.screenshotsDeleted} screenshots deleted`, 'API');
+
+    res.json({
+      success: true,
+      ...result,
+      resetToMain: resetToMain ? 'Feature not implemented' : false
+    });
+  } catch (error) {
+    logError(`Admin cleanup error: ${error}`, 'API');
+    res.status(500).json({ error: 'Failed to cleanup' });
+  }
+});
+
+// Clear build queue
+router.post('/admin/clear-queue', (_req: Request, res: Response) => {
+  try {
+    const { clearQueue: clearQueueFn } = require('../build/queue.js');
+    clearQueueFn();
+    res.json({ success: true, message: 'Queue cleared' });
+  } catch (error) {
+    logError(`Clear queue error: ${error}`, 'API');
+    res.status(500).json({ error: 'Failed to clear queue' });
   }
 });
 
