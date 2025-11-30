@@ -433,18 +433,29 @@ export const api = {
     ),
 };
 
-export function getScreenshotUrl(repoFullName: string, branch: string): string {
-  return `/preview/${encodeURIComponent(repoFullName)}/${encodeURIComponent(branch)}.png`;
+// Get the base URL for assets (uses Tailscale IP if available)
+export function getAssetBaseUrl(tailscaleIp: string | null, port: number = 3892): string {
+  if (tailscaleIp) {
+    return `http://${tailscaleIp}:${port}`;
+  }
+  return '';
 }
 
-export function getRunScreenshotUrl(repoFullName: string, branch: string, runId: string): string {
-  const safeName = repoFullName.replace(/\//g, '_');
-  const safeBranch = branch.replace(/\//g, '_');
-  return `/data/screenshots/${safeName}/${safeBranch}/${runId}.png`;
+export function getScreenshotUrl(repoFullName: string, branch: string, tailscaleIp?: string | null): string {
+  const base = tailscaleIp ? getAssetBaseUrl(tailscaleIp) : '';
+  return `${base}/preview/${encodeURIComponent(repoFullName)}/${encodeURIComponent(branch)}.png`;
 }
 
-export function getDiffScreenshotUrl(repoFullName: string, branch: string, runId: string): string {
+export function getRunScreenshotUrl(repoFullName: string, branch: string, runId: string, tailscaleIp?: string | null): string {
   const safeName = repoFullName.replace(/\//g, '_');
   const safeBranch = branch.replace(/\//g, '_');
-  return `/data/screenshots/${safeName}/${safeBranch}/${runId}_diff.png`;
+  const base = tailscaleIp ? getAssetBaseUrl(tailscaleIp) : '';
+  return `${base}/data/screenshots/${safeName}/${safeBranch}/${runId}.png`;
+}
+
+export function getDiffScreenshotUrl(repoFullName: string, branch: string, runId: string, tailscaleIp?: string | null): string {
+  const safeName = repoFullName.replace(/\//g, '_');
+  const safeBranch = branch.replace(/\//g, '_');
+  const base = tailscaleIp ? getAssetBaseUrl(tailscaleIp) : '';
+  return `${base}/data/screenshots/${safeName}/${safeBranch}/${runId}_diff.png`;
 }

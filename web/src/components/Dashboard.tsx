@@ -178,7 +178,7 @@ function Dashboard() {
   const styles = getStyles(darkMode);
 
   const [repos, setRepos] = useState<RepoConfig[]>([]);
-  const [queueStatus, setQueueStatus] = useState<Status['queue'] | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -195,12 +195,12 @@ function Dashboard() {
 
       const [reposData, statusData, pausedData] = await Promise.all([
         api.getRepos(),
-        api.getQueue(),
+        api.getStatus(),
         api.getPausedRepos()
       ]);
 
       setRepos(reposData);
-      setQueueStatus(statusData);
+      setStatus(statusData);
       setPausedRepos(pausedData);
       setError(null);
     } catch (err) {
@@ -298,13 +298,13 @@ function Dashboard() {
   }
 
   function isRepoInQueue(repoFullName: string): boolean {
-    if (!queueStatus) return false;
-    if (queueStatus.currentJob?.repoFullName === repoFullName) return true;
-    return queueStatus.queuedJobs.some(j => j.repoFullName === repoFullName);
+    if (!status?.queue) return false;
+    if (status.queue.currentJob?.repoFullName === repoFullName) return true;
+    return status.queue.queuedJobs.some(j => j.repoFullName === repoFullName);
   }
 
   function isRepoRunning(repoFullName: string): boolean {
-    return queueStatus?.currentJob?.repoFullName === repoFullName;
+    return status?.queue?.currentJob?.repoFullName === repoFullName;
   }
 
   function formatTime(timestamp: string) {
@@ -347,7 +347,7 @@ function Dashboard() {
         <h2 style={{ ...styles.title, marginBottom: 0 }}>Dashboard</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {refreshing && <span style={{ color: darkMode ? '#9ca3af' : '#666', fontSize: '0.85rem' }}>Refreshing...</span>}
-          {queueStatus && queueStatus.queueLength > 0 && (
+          {status?.queue && status.queue.queueLength > 0 && (
             <span style={{
               background: darkMode ? '#78350f' : '#fef3c7',
               color: darkMode ? '#fcd34d' : '#92400e',
@@ -355,8 +355,8 @@ function Dashboard() {
               borderRadius: '4px',
               fontSize: '0.85rem'
             }}>
-              Queue: {queueStatus.queueLength} job{queueStatus.queueLength !== 1 ? 's' : ''}
-              {queueStatus.isProcessing && ' (running)'}
+              Queue: {status.queue.queueLength} job{status.queue.queueLength !== 1 ? 's' : ''}
+              {status.queue.isProcessing && ' (running)'}
             </span>
           )}
           <button
@@ -429,7 +429,7 @@ function Dashboard() {
               <div style={styles.cardBody}>
                 {latestRun?.screenshotPath ? (
                   <ZoomableImage
-                    src={getScreenshotUrl(repo.repoFullName, latestRun.branch) + `?t=${Date.now()}`}
+                    src={getScreenshotUrl(repo.repoFullName, latestRun.branch, status?.tailscaleIp) + `?t=${Date.now()}`}
                     alt="Latest screenshot"
                     style={styles.screenshot}
                     darkMode={darkMode}
