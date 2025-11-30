@@ -12,7 +12,7 @@ import { getTailscaleIp } from './tailscale/ip.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '3892', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 async function main() {
