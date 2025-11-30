@@ -1,6 +1,85 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { api, RepoConfig, SavedCommand } from '../apiClient';
 import { useTheme } from '../context/ThemeContext';
+
+// ANSI color code to CSS color mapping
+const ansiColors: Record<number, string> = {
+  30: '#000000', 31: '#cd0000', 32: '#00cd00', 33: '#cdcd00',
+  34: '#0000ee', 35: '#cd00cd', 36: '#00cdcd', 37: '#e5e5e5',
+  90: '#7f7f7f', 91: '#ff0000', 92: '#00ff00', 93: '#ffff00',
+  94: '#5c5cff', 95: '#ff00ff', 96: '#00ffff', 97: '#ffffff',
+};
+
+const ansiBgColors: Record<number, string> = {
+  40: '#000000', 41: '#cd0000', 42: '#00cd00', 43: '#cdcd00',
+  44: '#0000ee', 45: '#cd00cd', 46: '#00cdcd', 47: '#e5e5e5',
+  100: '#7f7f7f', 101: '#ff0000', 102: '#00ff00', 103: '#ffff00',
+  104: '#5c5cff', 105: '#ff00ff', 106: '#00ffff', 107: '#ffffff',
+};
+
+function parseAnsi(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  // Match ANSI escape sequences
+  const regex = /\x1b\[([0-9;]*)m/g;
+  let lastIndex = 0;
+  let match;
+  let currentStyle: React.CSSProperties = {};
+  let keyIndex = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before this match
+    if (match.index > lastIndex) {
+      const textPart = text.slice(lastIndex, match.index);
+      if (Object.keys(currentStyle).length > 0) {
+        parts.push(<span key={keyIndex++} style={currentStyle}>{textPart}</span>);
+      } else {
+        parts.push(textPart);
+      }
+    }
+
+    // Parse the codes
+    const codes = match[1].split(';').map(Number);
+    for (const code of codes) {
+      if (code === 0) {
+        currentStyle = {};
+      } else if (code === 1) {
+        currentStyle = { ...currentStyle, fontWeight: 'bold' };
+      } else if (code === 2) {
+        currentStyle = { ...currentStyle, opacity: 0.7 };
+      } else if (code === 3) {
+        currentStyle = { ...currentStyle, fontStyle: 'italic' };
+      } else if (code === 4) {
+        currentStyle = { ...currentStyle, textDecoration: 'underline' };
+      } else if (code === 9) {
+        currentStyle = { ...currentStyle, textDecoration: 'line-through' };
+      } else if (ansiColors[code]) {
+        currentStyle = { ...currentStyle, color: ansiColors[code] };
+      } else if (ansiBgColors[code]) {
+        currentStyle = { ...currentStyle, backgroundColor: ansiBgColors[code] };
+      } else if (code === 39) {
+        const { color, ...rest } = currentStyle;
+        currentStyle = rest;
+      } else if (code === 49) {
+        const { backgroundColor, ...rest } = currentStyle;
+        currentStyle = rest;
+      }
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    const textPart = text.slice(lastIndex);
+    if (Object.keys(currentStyle).length > 0) {
+      parts.push(<span key={keyIndex++} style={currentStyle}>{textPart}</span>);
+    } else {
+      parts.push(textPart);
+    }
+  }
+
+  return parts.length > 0 ? parts : [text];
+}
 
 const getStyles = (darkMode: boolean) => ({
   container: {
@@ -152,6 +231,9 @@ function Terminal() {
 
   const outputRef = useRef<HTMLPreElement>(null);
   const pollIntervalRef = useRef<number | null>(null);
+
+  // Memoize parsed ANSI output
+  const parsedOutput = useMemo(() => parseAnsi(output), [output]);
 
   useEffect(() => {
     loadRepos();
@@ -368,7 +450,7 @@ function Terminal() {
             }
           }}
         >
-          {output || 'Output will appear here...'}
+          {output ? parsedOutput : 'Output will appear here...'}
         </pre>
       </div>
 

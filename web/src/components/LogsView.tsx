@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api, RepoConfig, RunRecord, getRunScreenshotUrl, getDiffScreenshotUrl } from '../apiClient';
+import { api, RepoConfig, RunRecord, getRunScreenshotUrl, getDiffScreenshotUrl, Status } from '../apiClient';
 import { useTheme } from '../context/ThemeContext';
 import ZoomableImage from './ZoomableImage';
 
@@ -222,6 +222,7 @@ function LogsView() {
   const [branches, setBranches] = useState<string[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [selectedRun, setSelectedRun] = useState<RunRecord | null>(null);
+  const [tailscaleIp, setTailscaleIp] = useState<string | null>(null);
 
   const [logTab, setLogTab] = useState<LogTab>('build');
   const [logContent, setLogContent] = useState<string>('');
@@ -232,7 +233,17 @@ function LogsView() {
 
   useEffect(() => {
     loadRepos();
+    loadStatus();
   }, []);
+
+  async function loadStatus() {
+    try {
+      const status = await api.getStatus();
+      setTailscaleIp(status.tailscaleIp);
+    } catch (err) {
+      // Ignore status errors
+    }
+  }
 
   useEffect(() => {
     if (selectedRepo) {
@@ -406,7 +417,7 @@ function LogsView() {
                   >
                     {run.screenshotPath ? (
                       <img
-                        src={getRunScreenshotUrl(selectedRepo, run.branch, run.runId)}
+                        src={getRunScreenshotUrl(selectedRepo, run.branch, run.runId, tailscaleIp)}
                         alt={`Run ${run.runId}`}
                         style={styles.thumbnail}
                         onError={(e) => {
@@ -538,7 +549,7 @@ function LogsView() {
                         <div style={styles.screenshotLabel}>Current Screenshot</div>
                         {selectedRun.screenshotPath ? (
                           <ZoomableImage
-                            src={getRunScreenshotUrl(selectedRepo, selectedRun.branch, selectedRun.runId)}
+                            src={getRunScreenshotUrl(selectedRepo, selectedRun.branch, selectedRun.runId, tailscaleIp)}
                             alt="Current screenshot"
                             darkMode={darkMode}
                             style={{ width: '100%', borderRadius: '4px' }}
@@ -553,7 +564,7 @@ function LogsView() {
                             Diff ({selectedRun.diffResult.diffPercentage.toFixed(2)}% changed)
                           </div>
                           <ZoomableImage
-                            src={getDiffScreenshotUrl(selectedRepo, selectedRun.branch, selectedRun.runId)}
+                            src={getDiffScreenshotUrl(selectedRepo, selectedRun.branch, selectedRun.runId, tailscaleIp)}
                             alt="Diff screenshot"
                             darkMode={darkMode}
                             style={{ width: '100%', borderRadius: '4px' }}
