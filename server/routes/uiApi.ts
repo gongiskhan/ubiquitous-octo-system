@@ -827,10 +827,29 @@ router.post('/terminal/execute', asyncHandler(async (req: Request, res: Response
   const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash';
   const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
 
+  // Set up environment for better TTY simulation
+  const termEnv = {
+    ...process.env,
+    TERM: 'xterm-256color',
+    FORCE_COLOR: '1',
+    COLORTERM: 'truecolor',
+    CLICOLOR: '1',
+    CLICOLOR_FORCE: '1',
+    // npm/yarn colors
+    NPM_CONFIG_COLOR: 'always',
+    YARN_COLOR: 'always',
+    // Git colors
+    GIT_PAGER: '',
+    // Columns for formatting
+    COLUMNS: '120',
+    LINES: '40',
+  };
+
   const childProcess = spawn(shell, shellArgs, {
     cwd,
-    env: { ...process.env, FORCE_COLOR: '1' },
+    env: termEnv,
     shell: false,
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 
   const session = {
