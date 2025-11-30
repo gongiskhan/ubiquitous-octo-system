@@ -379,12 +379,20 @@ router.post('/config/cache/clear', (req: Request, res: Response) => {
 
 // List GitHub repos
 router.get('/github/repos', asyncHandler(async (_req: Request, res: Response) => {
+  if (!process.env.GITHUB_TOKEN) {
+    res.status(401).json({ error: 'GITHUB_TOKEN is not configured. Set it in your .env file.' });
+    return;
+  }
   const repos = await listUserRepos();
   res.json(repos);
 }));
 
 // List branches for a repo
 router.get('/github/repos/:repoFullName(*)/branches', asyncHandler(async (req: Request, res: Response) => {
+  if (!process.env.GITHUB_TOKEN) {
+    res.status(401).json({ error: 'GITHUB_TOKEN is not configured. Set it in your .env file.' });
+    return;
+  }
   const { repoFullName } = req.params;
   const branches = await listBranches(decodeURIComponent(repoFullName));
   res.json(branches);

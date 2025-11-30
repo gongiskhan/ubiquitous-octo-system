@@ -1,5 +1,39 @@
 {
-  "repos": [],
-  "webhookBaseUrl": "https://YOUR-FUNNEL-URL",
-  "defaultPort": 3000
+  "repos": [
+    {
+      "repoFullName": "gongiskhan/indy-mobileapps",
+      "localPath": "/Users/ggomes/dev/indy-mobileapps",
+      "profile": "ios-capacitor",
+      "devPort": 3000,
+      "enabled": true,
+      "webhookId": 583722384,
+      "lastRuns": [
+        {
+          "branch": "cinepolis-usa",
+          "timestamp": "2025-11-30T09:27:21.244Z",
+          "runId": "2025-11-30T09-27-21-244Z",
+          "status": "success",
+          "buildLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z/build.log",
+          "runtimeLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z/runtime.log",
+          "networkLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z/network.log",
+          "runJsonPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z/run.json",
+          "screenshotPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/screenshots/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z.png",
+          "durations": {
+            "git": 1628,
+            "total": 60379
+          }
+        }
+      ]
+    }
+  ],
+  "webhookBaseUrl": "https://goncalos-macbook-pro.tail31efa.ts.net",
+  "defaultPort": 3000,
+  "cloneBaseDir": "/Users/ggomes/branchrunner-repos",
+  "cacheEnabled": true,
+  "defaultBuildOptions": {
+    "buildTimeout": 240000,
+    "runtimeTimeout": 60000,
+    "screenshotTimeout": 10000,
+    "screenshotDelay": 2000
+  }
 }

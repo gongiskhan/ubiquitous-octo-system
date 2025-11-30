@@ -1,0 +1,15 @@
+{
+  "repoFullName": "gongiskhan/indy-mobileapps",
+  "branch": "cinepolis-usa",
+  "runId": "2025-11-30T09-27-21-244Z",
+  "timestamp": "2025-11-30T09:28:21.623Z",
+  "status": "success",
+  "profile": "ios-capacitor",
+  "durations": {
+    "git": 1628,
+    "total": 60379
+  },
+  "screenshotPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/screenshots/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z.png",
+  "buildLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z/build.log",
+  "runtimeLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-11-30T09-27-21-244Z/runtime.log"
+}

@@ -15,7 +15,12 @@ const SIMULATOR_PREFERENCES = [
 const LOG_STREAM_DURATION = 10000; // 10 seconds
 const APP_LAUNCH_DELAY = 8000; // 8 seconds
 
-async function findAvailableSimulator(localPath: string, buildLog: FileLogger): Promise<string | null> {
+interface SimulatorInfo {
+  name: string;
+  udid: string;
+}
+
+async function findAvailableSimulator(localPath: string, buildLog: FileLogger): Promise<SimulatorInfo | null> {
   buildLog.appendWithTimestamp('Searching for available iOS simulator...');
 
   const result = await runCommand('xcrun simctl list devices available -j', localPath, buildLog);
@@ -37,16 +42,16 @@ async function findAvailableSimulator(localPath: string, buildLog: FileLogger): 
       for (const preferred of SIMULATOR_PREFERENCES) {
         const device = availableDevices.find(d => d.name === preferred);
         if (device) {
-          buildLog.appendWithTimestamp(`Found simulator: ${device.name} (${runtime})`);
-          return device.name;
+          buildLog.appendWithTimestamp(`Found simulator: ${device.name} (${device.udid}) on ${runtime}`);
+          return { name: device.name, udid: device.udid };
         }
       }
 
       // Fall back to any iPhone
       const anyIphone = availableDevices.find(d => d.name.includes('iPhone'));
       if (anyIphone) {
-        buildLog.appendWithTimestamp(`Found fallback simulator: ${anyIphone.name} (${runtime})`);
-        return anyIphone.name;
+        buildLog.appendWithTimestamp(`Found fallback simulator: ${anyIphone.name} (${anyIphone.udid}) on ${runtime}`);
+        return { name: anyIphone.name, udid: anyIphone.udid };
       }
     }
   } catch (e) {
@@ -96,18 +101,21 @@ export async function runIosCapacitor(ctx: ProfileContext): Promise<ProfileResul
     }
 
     // Step 3: Find and boot simulator
-    const simulator = await findAvailableSimulator(localPath, buildLog) || SIMULATOR_PREFERENCES[0];
-    buildLog.appendWithTimestamp(`--- Booting simulator (${simulator}) ---`);
+    const simulatorInfo = await findAvailableSimulator(localPath, buildLog);
+    const simulatorName = simulatorInfo?.name || SIMULATOR_PREFERENCES[0];
+    const simulatorUdid = simulatorInfo?.udid;
+
+    buildLog.appendWithTimestamp(`--- Booting simulator (${simulatorName}) ---`);
 
     // First, try to shutdown any existing booted state
-    await runCommand(`xcrun simctl shutdown "${simulator}" 2>/dev/null || true`, localPath, buildLog);
+    await runCommand(`xcrun simctl shutdown "${simulatorName}" 2>/dev/null || true`, localPath, buildLog);
 
     // Boot the simulator
-    const bootCmd = await runCommand(`xcrun simctl boot "${simulator}" 2>/dev/null || true`, localPath, buildLog);
+    const bootCmd = await runCommand(`xcrun simctl boot "${simulatorName}" 2>/dev/null || true`, localPath, buildLog);
 
     // Wait for boot to complete
     const bootResult = await runCommand(
-      `xcrun simctl bootstatus "${simulator}" -b`,
+      `xcrun simctl bootstatus "${simulatorName}" -b`,
       localPath,
       buildLog,
       120000
@@ -118,9 +126,11 @@ export async function runIosCapacitor(ctx: ProfileContext): Promise<ProfileResul
     }
 
     // Step 4: Run the app on simulator
-    buildLog.appendWithTimestamp('--- Running app on simulator ---');
+    // Capacitor CLI requires UDID, not device name
+    const targetId = simulatorUdid || simulatorName;
+    buildLog.appendWithTimestamp(`--- Running app on simulator (target: ${targetId}) ---`);
     const runResult = await runCommand(
-      `npx cap run ios --target "${simulator}" --no-open`,
+      `npx cap run ios --target "${targetId}" --no-open`,
       localPath,
       buildLog,
       600000 // 10 minutes for build
