@@ -1,7 +1,7 @@
 {
   "name": "branchrunner",
   "version": "1.0.0",
-  "description": "Local service that receives GitHub push webhooks, runs builds, captures screenshots, and sends Slack notifications",
+  "description": "Local service that receives GitHub push webhooks, runs builds, captures screenshots, and sends Slack notifications with autonomous testing and fixing agents",
   "type": "module",
   "scripts": {
     "dev:server": "tsx watch server/index.ts",
@@ -17,7 +17,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.0",
     "@octokit/rest": "^20.0.2",
+    "@xenova/transformers": "^2.17.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "playwright": "^1.40.1"

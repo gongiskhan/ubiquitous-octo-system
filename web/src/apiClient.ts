@@ -11,6 +11,7 @@ export interface RepoConfig {
   autoCloned?: boolean;
   buildOptions?: BuildOptions;
   lastRuns?: RunRecord[];
+  testingConfig?: TestingConfig;
 }
 
 export interface BuildOptions {
@@ -21,6 +22,37 @@ export interface BuildOptions {
   simulatorDevice?: string;
   androidAvd?: string;
   envVars?: Record<string, string>;
+}
+
+export type TestingProfile = 'web' | 'ios-capacitor' | 'android-capacitor' | 'both-mobile';
+
+export interface MobileTestingConfig {
+  iosEnabled: boolean;
+  androidEnabled: boolean;
+  iosBundleId?: string;
+  androidPackage?: string;
+  iosSimulator?: string;
+  androidEmulator?: string;
+}
+
+export interface CredentialConfig {
+  username: string;
+  password: string;
+  loginSelectors?: {
+    usernameField: string;
+    passwordField: string;
+    submitButton: string;
+  };
+}
+
+export interface TestingConfig {
+  enabled: boolean;
+  testingUrl?: string;
+  maxIterations: number;
+  passThreshold: number;
+  testingProfile: TestingProfile;
+  credentials?: CredentialConfig;
+  mobileConfig?: MobileTestingConfig;
 }
 
 export interface DiffResult {

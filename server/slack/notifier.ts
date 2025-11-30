@@ -246,3 +246,154 @@ export async function sendTestNotification(): Promise<boolean> {
 export function isSlackConfigured(): boolean {
   return !!getSlackWebhookUrl();
 }
+
+/**
+ * Testing iteration notification parameters
+ */
+export interface TestIterationParams {
+  repoFullName: string;
+  branch: string;
+  iteration: number;
+  maxIterations: number;
+  phase: 'testing' | 'fixing' | 'complete';
+  score: number;
+  testsPassed: number;
+  testsFailed: number;
+  changesApplied?: number;
+  filesChanged?: string[];
+  summary: string;
+  status: 'in-progress' | 'success' | 'failed' | 'max-iterations';
+  screenshotUrl?: string;
+  duration: number;
+}
+
+/**
+ * Send a testing iteration notification
+ */
+export async function sendTestIterationNotification(params: TestIterationParams): Promise<boolean> {
+  const {
+    repoFullName,
+    branch,
+    iteration,
+    maxIterations,
+    phase,
+    score,
+    testsPassed,
+    testsFailed,
+    changesApplied,
+    filesChanged,
+    summary,
+    status,
+    screenshotUrl,
+    duration,
+  } = params;
+
+  // Choose emoji based on status
+  let emoji: string;
+  let statusText: string;
+  switch (status) {
+    case 'success':
+      emoji = ':white_check_mark:';
+      statusText = 'PASSED';
+      break;
+    case 'failed':
+      emoji = ':x:';
+      statusText = 'FAILED';
+      break;
+    case 'max-iterations':
+      emoji = ':warning:';
+      statusText = 'MAX ITERATIONS';
+      break;
+    default:
+      emoji = ':hourglass_flowing_sand:';
+      statusText = 'IN PROGRESS';
+  }
+
+  // Choose phase emoji
+  let phaseEmoji: string;
+  switch (phase) {
+    case 'testing':
+      phaseEmoji = ':mag:';
+      break;
+    case 'fixing':
+      phaseEmoji = ':wrench:';
+      break;
+    default:
+      phaseEmoji = ':checkered_flag:';
+  }
+
+  let text = `${emoji} *BranchRunner: Testing ${statusText}*\n`;
+  text += `*Repository:* \`${repoFullName}\`\n`;
+  text += `*Branch:* \`${branch}\`\n`;
+  text += `*Iteration:* ${iteration}/${maxIterations} ${phaseEmoji} ${phase}\n`;
+  text += `*Score:* ${score}%${score >= 95 ? ' :star:' : ''}\n`;
+  text += `*Tests:* ${testsPassed} passed, ${testsFailed} failed\n`;
+
+  if (changesApplied !== undefined) {
+    text += `*Fixes Applied:* ${changesApplied}\n`;
+  }
+
+  if (filesChanged && filesChanged.length > 0) {
+    const filesList = filesChanged.slice(0, 5).join(', ');
+    const moreCount = filesChanged.length - 5;
+    text += `*Files Modified:* ${filesList}${moreCount > 0 ? ` (+${moreCount} more)` : ''}\n`;
+  }
+
+  text += `*Duration:* ${Math.round(duration / 1000)}s\n`;
+  text += `*Summary:* ${summary}\n`;
+
+  if (screenshotUrl) {
+    text += `*Screenshot:* ${screenshotUrl}\n`;
+  }
+
+  return sendSlackMessage({ text });
+}
+
+/**
+ * Send a complete test workflow summary
+ */
+export async function sendTestWorkflowSummary(params: {
+  repoFullName: string;
+  branch: string;
+  success: boolean;
+  iterations: number;
+  maxIterations: number;
+  finalScore: number;
+  passThreshold: number;
+  totalDuration: number;
+  screenshotUrl?: string;
+}): Promise<boolean> {
+  const {
+    repoFullName,
+    branch,
+    success,
+    iterations,
+    maxIterations,
+    finalScore,
+    passThreshold,
+    totalDuration,
+    screenshotUrl,
+  } = params;
+
+  const emoji = success ? ':trophy:' : ':warning:';
+  const statusText = success ? 'PASSED' : 'NEEDS ATTENTION';
+
+  let text = `${emoji} *BranchRunner: Test Workflow ${statusText}*\n`;
+  text += `*Repository:* \`${repoFullName}\`\n`;
+  text += `*Branch:* \`${branch}\`\n`;
+  text += `*Final Score:* ${finalScore}% (threshold: ${passThreshold}%)\n`;
+  text += `*Iterations:* ${iterations}/${maxIterations}\n`;
+  text += `*Total Duration:* ${Math.round(totalDuration / 1000)}s\n`;
+
+  if (success) {
+    text += `:sparkles: All tests passed!\n`;
+  } else {
+    text += `:point_right: Manual review recommended\n`;
+  }
+
+  if (screenshotUrl) {
+    text += `*Screenshot:* ${screenshotUrl}\n`;
+  }
+
+  return sendSlackMessage({ text });
+}

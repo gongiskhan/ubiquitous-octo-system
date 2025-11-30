@@ -8,8 +8,10 @@ import {
   addRunRecord,
   updateRunRecord,
   getEffectiveBuildOptions,
+  getEffectiveTestingConfig,
   type RunRecord,
   type DiffResult,
+  type TestingConfig,
 } from '../config.js';
 import { info, warn, error as logError, FileLogger } from '../logging/logger.js';
 import { getLogPaths, getScreenshotPath } from '../logging/logStore.js';
@@ -20,10 +22,17 @@ import { runWebGeneric } from './profiles/webGeneric.js';
 import { runNodeService } from './profiles/nodeService.js';
 import { runAndroidCapacitor } from './profiles/androidCapacitor.js';
 import { runTauriApp } from './profiles/tauriApp.js';
-import { sendBuildResultSuccess, sendBuildResultFailure } from '../slack/notifier.js';
+import {
+  sendBuildResultSuccess,
+  sendBuildResultFailure,
+  sendTestIterationNotification,
+  sendTestWorkflowSummary,
+} from '../slack/notifier.js';
 import { getTailscaleIp } from '../tailscale/ip.js';
-import { ensureRepoCloned, gitSyncWithRecovery, cleanOrphanedBranches } from '../utils/repoManager.js';
+import { ensureRepoCloned, gitSyncWithRecovery, cleanOrphanedBranches, getLastCommitInfo } from '../utils/repoManager.js';
 import { analyzeLogFile } from '../utils/errorAnalyzer.js';
+import { executeTestAndFix } from '../agents/workflows/test-and-fix.js';
+import type { AgentContext } from '../agents/types.js';
 
 const execAsync = promisify(exec);
 
@@ -267,6 +276,66 @@ export async function executeJob(job: BuildJob): Promise<void> {
         diffResult: result.diffResult,
         durations,
       });
+
+      // Run testing workflow if enabled
+      const testingConfig = getEffectiveTestingConfig(repoConfig);
+      if (testingConfig.enabled) {
+        buildLog.appendLine('');
+        buildLog.appendWithTimestamp('=== Starting Testing Workflow ===');
+
+        // Get commit info for context
+        const commitInfo = await getLastCommitInfo(repoConfig.localPath);
+
+        // Prepare agent context
+        const agentContext: AgentContext = {
+          repoFullName,
+          projectPath: repoConfig.localPath,
+          branch,
+          commitMessage: commitInfo?.message,
+          changedFiles: commitInfo?.files,
+          testingConfig: {
+            enabled: testingConfig.enabled,
+            testingUrl: testingConfig.testingUrl || (devPort ? `http://localhost:${devPort}` : undefined),
+            maxIterations: testingConfig.maxIterations,
+            passThreshold: testingConfig.passThreshold,
+            testingProfile: testingConfig.testingProfile,
+            credentials: testingConfig.credentials,
+            mobileConfig: testingConfig.mobileConfig,
+          },
+          runId,
+          logsDir,
+          screenshotsDir,
+        };
+
+        // Execute test-and-fix workflow with Slack notifications
+        const testWorkflowResult = await executeTestAndFix({
+          context: agentContext,
+          onSlackNotify: async (params) => {
+            await sendTestIterationNotification({
+              ...params,
+              screenshotUrl,
+            });
+          },
+        });
+
+        buildLog.appendWithTimestamp(`Testing workflow completed: ${testWorkflowResult.success ? 'PASSED' : 'NEEDS ATTENTION'}`);
+        buildLog.appendWithTimestamp(`Final score: ${testWorkflowResult.finalScore}%`);
+        buildLog.appendWithTimestamp(`Iterations: ${testWorkflowResult.iterations.length}`);
+        buildLog.appendWithTimestamp(`Duration: ${(testWorkflowResult.duration / 1000).toFixed(1)}s`);
+
+        // Send final workflow summary
+        await sendTestWorkflowSummary({
+          repoFullName,
+          branch,
+          success: testWorkflowResult.success,
+          iterations: testWorkflowResult.iterations.length,
+          maxIterations: testingConfig.maxIterations,
+          finalScore: testWorkflowResult.finalScore,
+          passThreshold: testingConfig.passThreshold,
+          totalDuration: testWorkflowResult.duration,
+          screenshotUrl,
+        });
+      }
     } else {
       await sendBuildResultFailure({
         repoFullName,

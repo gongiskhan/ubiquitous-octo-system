@@ -15,6 +15,37 @@ export type ProfileType =
   | 'tauri-app'
   | 'custom';
 
+export type TestingProfile = 'web' | 'ios-capacitor' | 'android-capacitor' | 'both-mobile';
+
+export interface MobileTestingConfig {
+  iosEnabled: boolean;
+  androidEnabled: boolean;
+  iosBundleId?: string;
+  androidPackage?: string;
+  iosSimulator?: string;
+  androidEmulator?: string;
+}
+
+export interface CredentialConfig {
+  username: string;
+  password: string;
+  loginSelectors?: {
+    usernameField: string;
+    passwordField: string;
+    submitButton: string;
+  };
+}
+
+export interface TestingConfig {
+  enabled: boolean;
+  testingUrl?: string;
+  maxIterations: number;
+  passThreshold: number;
+  testingProfile: TestingProfile;
+  credentials?: CredentialConfig;
+  mobileConfig?: MobileTestingConfig;
+}
+
 export interface DiffResult {
   diffPercentage: number;
   diffPixelCount: number;
@@ -68,6 +99,7 @@ export interface RepoConfig {
   lastRuns?: RunRecord[];
   buildOptions?: BuildOptions;
   autoCloned?: boolean;
+  testingConfig?: TestingConfig;
 }
 
 export interface AppConfig {
@@ -77,6 +109,7 @@ export interface AppConfig {
   cloneBaseDir: string;
   cacheEnabled: boolean;
   defaultBuildOptions: BuildOptions;
+  defaultTestingConfig: TestingConfig;
 }
 
 let configCache: AppConfig | null = null;
@@ -92,6 +125,15 @@ function getDefaultCloneDir(): string {
   return join(os.homedir(), 'branchrunner-repos');
 }
 
+function getDefaultTestingConfig(): TestingConfig {
+  return {
+    enabled: true,
+    maxIterations: 5,
+    passThreshold: 95,
+    testingProfile: 'web',
+  };
+}
+
 function getDefaultConfig(): AppConfig {
   return {
     repos: [],
@@ -105,6 +147,7 @@ function getDefaultConfig(): AppConfig {
       screenshotTimeout: 10000,
       screenshotDelay: 2000,
     },
+    defaultTestingConfig: getDefaultTestingConfig(),
   };
 }
 
@@ -351,4 +394,23 @@ export function getEffectiveBuildOptions(repo: RepoConfig): BuildOptions {
     ...config.defaultBuildOptions,
     ...(repo.buildOptions || {}),
   };
+}
+
+export function getEffectiveTestingConfig(repo: RepoConfig): TestingConfig {
+  const config = loadConfig();
+  return {
+    ...config.defaultTestingConfig,
+    ...(repo.testingConfig || {}),
+  };
+}
+
+export function getDefaultTestingOptions(): TestingConfig {
+  const config = loadConfig();
+  return config.defaultTestingConfig;
+}
+
+export function setDefaultTestingOptions(options: Partial<TestingConfig>): void {
+  const config = loadConfig();
+  config.defaultTestingConfig = { ...config.defaultTestingConfig, ...options };
+  saveConfig();
 }
