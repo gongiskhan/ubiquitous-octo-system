@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, RepoConfig } from '../apiClient';
+import { api, RepoConfig, TestingConfig, TestingProfile } from '../apiClient';
 
 interface Props {
   repoFullName: string;
@@ -15,6 +15,13 @@ const PROFILES = [
   { value: 'android-capacitor', label: 'Android Capacitor (stub)' },
   { value: 'tauri-app', label: 'Tauri App (stub)' },
   { value: 'custom', label: 'Custom (stub)' },
+];
+
+const TESTING_PROFILES = [
+  { value: 'web', label: 'Web (Playwright)' },
+  { value: 'ios-capacitor', label: 'iOS Capacitor (MobileNext)' },
+  { value: 'android-capacitor', label: 'Android Capacitor (MobileNext)' },
+  { value: 'both-mobile', label: 'Both iOS & Android' },
 ];
 
 const styles = {
@@ -111,6 +118,13 @@ function RepoConfigForm({ repoFullName, existingConfig, onSave, onCancel }: Prop
   const [enabled, setEnabled] = useState(existingConfig?.enabled ?? true);
   const [webhookId, setWebhookId] = useState(existingConfig?.webhookId);
 
+  // Testing configuration state
+  const [testingEnabled, setTestingEnabled] = useState(existingConfig?.testingConfig?.enabled ?? true);
+  const [testingUrl, setTestingUrl] = useState(existingConfig?.testingConfig?.testingUrl || '');
+  const [maxIterations, setMaxIterations] = useState(existingConfig?.testingConfig?.maxIterations ?? 5);
+  const [passThreshold, setPassThreshold] = useState(existingConfig?.testingConfig?.passThreshold ?? 95);
+  const [testingProfile, setTestingProfile] = useState<TestingProfile>(existingConfig?.testingConfig?.testingProfile || 'web');
+
   const [saving, setSaving] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [creatingWebhook, setCreatingWebhook] = useState(false);
@@ -134,6 +148,13 @@ function RepoConfigForm({ repoFullName, existingConfig, onSave, onCancel }: Prop
         devPort,
         enabled,
         webhookId,
+        testingConfig: {
+          enabled: testingEnabled,
+          testingUrl: testingUrl.trim() || undefined,
+          maxIterations,
+          passThreshold,
+          testingProfile,
+        },
       });
 
       setSuccess('Configuration saved');
@@ -312,6 +333,86 @@ function RepoConfigForm({ repoFullName, existingConfig, onSave, onCancel }: Prop
             >
               {creatingWebhook ? 'Creating...' : 'Create Webhook'}
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Testing Configuration Section */}
+      <div style={{ ...styles.webhookSection, background: '#f0f9ff' }}>
+        <label style={styles.label}>Automated Testing</label>
+
+        <div style={{ ...styles.checkbox, marginTop: '0.5rem' }}>
+          <input
+            type="checkbox"
+            id="testingEnabled"
+            checked={testingEnabled}
+            onChange={(e) => setTestingEnabled(e.target.checked)}
+          />
+          <label htmlFor="testingEnabled">Enable automated testing after builds</label>
+        </div>
+
+        {testingEnabled && (
+          <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={styles.field}>
+              <label style={styles.label}>Testing Profile</label>
+              <select
+                style={styles.select}
+                value={testingProfile}
+                onChange={(e) => setTestingProfile(e.target.value as TestingProfile)}
+              >
+                {TESTING_PROFILES.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <span style={styles.hint}>Choose the testing method based on your app type</span>
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Testing URL (optional)</label>
+              <input
+                type="text"
+                style={styles.input}
+                value={testingUrl}
+                onChange={(e) => setTestingUrl(e.target.value)}
+                placeholder="http://localhost:3000"
+              />
+              <span style={styles.hint}>URL to test. If empty, will use dev server port.</span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ ...styles.field, flex: 1 }}>
+                <label style={styles.label}>Max Iterations</label>
+                <input
+                  type="number"
+                  style={styles.input}
+                  value={maxIterations}
+                  onChange={(e) => setMaxIterations(Math.max(1, parseInt(e.target.value) || 5))}
+                  min={1}
+                  max={10}
+                />
+                <span style={styles.hint}>Retry attempts if tests fail (1-10)</span>
+              </div>
+
+              <div style={{ ...styles.field, flex: 1 }}>
+                <label style={styles.label}>Pass Threshold (%)</label>
+                <input
+                  type="number"
+                  style={styles.input}
+                  value={passThreshold}
+                  onChange={(e) => setPassThreshold(Math.min(100, Math.max(0, parseInt(e.target.value) || 95)))}
+                  min={0}
+                  max={100}
+                />
+                <span style={styles.hint}>Score needed to pass (0-100)</span>
+              </div>
+            </div>
+
+            <p style={{ ...styles.hint, marginTop: '0.25rem' }}>
+              Testing agent will automatically test changes and attempt to fix issues.
+              Slack notifications are sent on each iteration.
+            </p>
           </div>
         )}
       </div>

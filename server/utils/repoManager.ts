@@ -530,3 +530,53 @@ export function deleteClonedRepo(localPath: string): boolean {
     return false;
   }
 }
+
+export interface CommitInfo {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+  files: string[];
+}
+
+/**
+ * Get information about the last commit for context in testing
+ */
+export async function getLastCommitInfo(localPath: string): Promise<CommitInfo | null> {
+  try {
+    // Get commit info
+    const commitResult = await execWithTimeout(
+      'git log -1 --format="%H|%s|%an|%aI"',
+      localPath,
+      10000
+    );
+
+    if (!commitResult.success || !commitResult.stdout.trim()) {
+      return null;
+    }
+
+    const [hash, message, author, date] = commitResult.stdout.trim().split('|');
+
+    // Get changed files in last commit
+    const filesResult = await execWithTimeout(
+      'git diff-tree --no-commit-id --name-only -r HEAD',
+      localPath,
+      10000
+    );
+
+    const files = filesResult.success && filesResult.stdout.trim()
+      ? filesResult.stdout.trim().split('\n').filter(Boolean)
+      : [];
+
+    return {
+      hash,
+      message,
+      author,
+      date,
+      files,
+    };
+  } catch (error) {
+    warn(`Failed to get commit info: ${error}`, 'RepoManager');
+    return null;
+  }
+}
