@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { getRepoConfig } from '../config.js';
+import { getRepoConfig, isRepoPaused } from '../config.js';
 import { enqueue } from '../build/queue.js';
 import { info, warn, error as logError } from '../logging/logger.js';
 
@@ -127,6 +127,13 @@ router.post('/', (req: Request, res: Response) => {
   if (!repoConfig.enabled) {
     info(`Repo ${repoFullName} is disabled, ignoring webhook`, 'Webhook');
     res.status(200).json({ message: 'Repo disabled' });
+    return;
+  }
+
+  // Check if repo is paused for webhooks
+  if (isRepoPaused(repoFullName)) {
+    info(`Repo ${repoFullName} is paused for webhooks, ignoring`, 'Webhook');
+    res.status(200).json({ message: 'Repo paused' });
     return;
   }
 

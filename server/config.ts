@@ -102,6 +102,13 @@ export interface RepoConfig {
   testingConfig?: TestingConfig;
 }
 
+export interface SavedCommand {
+  id: string;
+  command: string;
+  description?: string;
+  createdAt: string;
+}
+
 export interface AppConfig {
   repos: RepoConfig[];
   webhookBaseUrl: string;
@@ -110,6 +117,8 @@ export interface AppConfig {
   cacheEnabled: boolean;
   defaultBuildOptions: BuildOptions;
   defaultTestingConfig: TestingConfig;
+  savedCommands: SavedCommand[];
+  pausedRepos: string[]; // repos paused from webhook listening
 }
 
 let configCache: AppConfig | null = null;
@@ -138,7 +147,7 @@ function getDefaultConfig(): AppConfig {
   return {
     repos: [],
     webhookBaseUrl: 'https://YOUR-FUNNEL-URL',
-    defaultPort: 3000,
+    defaultPort: 3892,
     cloneBaseDir: getDefaultCloneDir(),
     cacheEnabled: true,
     defaultBuildOptions: {
@@ -148,6 +157,8 @@ function getDefaultConfig(): AppConfig {
       screenshotDelay: 2000,
     },
     defaultTestingConfig: getDefaultTestingConfig(),
+    savedCommands: [],
+    pausedRepos: [],
   };
 }
 
@@ -413,4 +424,90 @@ export function setDefaultTestingOptions(options: Partial<TestingConfig>): void 
   const config = loadConfig();
   config.defaultTestingConfig = { ...config.defaultTestingConfig, ...options };
   saveConfig();
+}
+
+// Saved commands functions
+export function getSavedCommands(): SavedCommand[] {
+  const config = loadConfig();
+  return config.savedCommands || [];
+}
+
+export function addSavedCommand(command: string, description?: string): SavedCommand {
+  const config = loadConfig();
+  if (!config.savedCommands) {
+    config.savedCommands = [];
+  }
+
+  const newCommand: SavedCommand = {
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
+    command,
+    description,
+    createdAt: new Date().toISOString(),
+  };
+
+  config.savedCommands.push(newCommand);
+  saveConfig();
+  return newCommand;
+}
+
+export function deleteSavedCommand(id: string): boolean {
+  const config = loadConfig();
+  if (!config.savedCommands) {
+    return false;
+  }
+
+  const index = config.savedCommands.findIndex((c) => c.id === id);
+  if (index < 0) {
+    return false;
+  }
+
+  config.savedCommands.splice(index, 1);
+  saveConfig();
+  return true;
+}
+
+// Paused repos functions
+export function getPausedRepos(): string[] {
+  const config = loadConfig();
+  return config.pausedRepos || [];
+}
+
+export function isRepoPaused(repoFullName: string): boolean {
+  const config = loadConfig();
+  return (config.pausedRepos || []).includes(repoFullName);
+}
+
+export function pauseRepo(repoFullName: string): void {
+  const config = loadConfig();
+  if (!config.pausedRepos) {
+    config.pausedRepos = [];
+  }
+
+  if (!config.pausedRepos.includes(repoFullName)) {
+    config.pausedRepos.push(repoFullName);
+    saveConfig();
+  }
+}
+
+export function resumeRepo(repoFullName: string): void {
+  const config = loadConfig();
+  if (!config.pausedRepos) {
+    return;
+  }
+
+  const index = config.pausedRepos.indexOf(repoFullName);
+  if (index >= 0) {
+    config.pausedRepos.splice(index, 1);
+    saveConfig();
+  }
+}
+
+export function toggleRepoPause(repoFullName: string): boolean {
+  if (isRepoPaused(repoFullName)) {
+    resumeRepo(repoFullName);
+    return false; // not paused anymore
+  } else {
+    pauseRepo(repoFullName);
+    return true; // now paused
+  }
 }

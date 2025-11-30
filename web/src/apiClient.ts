@@ -164,6 +164,19 @@ export interface Status {
   config?: ConfigInfo;
 }
 
+export interface SavedCommand {
+  id: string;
+  command: string;
+  description?: string;
+  createdAt: string;
+}
+
+export interface TerminalSession {
+  output: string;
+  status: 'running' | 'completed' | 'error';
+  exitCode?: number;
+}
+
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -383,6 +396,41 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(options),
     }),
+
+  // Terminal
+  executeCommand: (command: string, repoFullName?: string) =>
+    fetchJson<{ sessionId: string; message: string }>('/terminal/execute', {
+      method: 'POST',
+      body: JSON.stringify({ command, repoFullName }),
+    }),
+  getTerminalSession: (sessionId: string) =>
+    fetchJson<TerminalSession>(`/terminal/session/${sessionId}`),
+  killTerminalSession: (sessionId: string) =>
+    fetchJson<{ success: boolean }>(`/terminal/session/${sessionId}/kill`, {
+      method: 'POST',
+    }),
+
+  // Saved Commands
+  getSavedCommands: () => fetchJson<SavedCommand[]>('/commands'),
+  addSavedCommand: (command: string, description?: string) =>
+    fetchJson<{ success: boolean; command: SavedCommand }>('/commands', {
+      method: 'POST',
+      body: JSON.stringify({ command, description }),
+    }),
+  deleteSavedCommand: (id: string) =>
+    fetchJson<{ success: boolean }>(`/commands/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Pause/Resume Repos
+  getPausedRepos: () => fetchJson<string[]>('/paused-repos'),
+  isRepoPaused: (repoFullName: string) =>
+    fetchJson<{ paused: boolean }>(`/repos/${encodeURIComponent(repoFullName)}/paused`),
+  toggleRepoPause: (repoFullName: string) =>
+    fetchJson<{ success: boolean; paused: boolean }>(
+      `/repos/${encodeURIComponent(repoFullName)}/toggle-pause`,
+      { method: 'POST' }
+    ),
 };
 
 export function getScreenshotUrl(repoFullName: string, branch: string): string {

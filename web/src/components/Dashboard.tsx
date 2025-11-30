@@ -186,19 +186,22 @@ function Dashboard() {
   const [selectedBranches, setSelectedBranches] = useState<Record<string, string>>({});
   const [repoBranches, setRepoBranches] = useState<Record<string, GitHubBranch[]>>({});
   const [loadingBranches, setLoadingBranches] = useState<Record<string, boolean>>({});
+  const [pausedRepos, setPausedRepos] = useState<string[]>([]);
 
   const loadRepos = useCallback(async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
       else setRefreshing(true);
 
-      const [reposData, statusData] = await Promise.all([
+      const [reposData, statusData, pausedData] = await Promise.all([
         api.getRepos(),
-        api.getQueue()
+        api.getQueue(),
+        api.getPausedRepos()
       ]);
 
       setRepos(reposData);
       setQueueStatus(statusData);
+      setPausedRepos(pausedData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load repos');
@@ -268,6 +271,25 @@ function Dashboard() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to reset repo');
     }
+  }
+
+  async function togglePause(repo: RepoConfig) {
+    try {
+      const result = await api.toggleRepoPause(repo.repoFullName);
+      if (result.paused) {
+        setPausedRepos((prev) => [...prev, repo.repoFullName]);
+        toast.info(`Paused webhook listening for ${repo.repoFullName}`);
+      } else {
+        setPausedRepos((prev) => prev.filter((r) => r !== repo.repoFullName));
+        toast.success(`Resumed webhook listening for ${repo.repoFullName}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to toggle pause');
+    }
+  }
+
+  function isRepoPaused(repoFullName: string): boolean {
+    return pausedRepos.includes(repoFullName);
   }
 
   function getLatestRun(repo: RepoConfig) {
@@ -521,6 +543,20 @@ function Dashboard() {
                     title="Reset to main branch"
                   >
                     Reset
+                  </button>
+
+                  <button
+                    style={{
+                      ...styles.button,
+                      background: isRepoPaused(repo.repoFullName)
+                        ? (darkMode ? '#dc2626' : '#ef4444')
+                        : (darkMode ? '#059669' : '#10b981'),
+                      color: '#fff',
+                    }}
+                    onClick={() => togglePause(repo)}
+                    title={isRepoPaused(repo.repoFullName) ? 'Resume webhook listening' : 'Pause webhook listening'}
+                  >
+                    {isRepoPaused(repo.repoFullName) ? 'Paused' : 'Listening'}
                   </button>
 
                   <div style={{ ...styles.toggle, marginLeft: 'auto' }}>

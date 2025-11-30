@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
+import { spawn, ChildProcess } from 'child_process';
 import {
   getConfigs,
   getRepoConfig,
@@ -17,9 +18,16 @@ import {
   getDefaultBuildOptions,
   setDefaultBuildOptions,
   getRunsByBranch,
+  getSavedCommands,
+  addSavedCommand,
+  deleteSavedCommand,
+  getPausedRepos,
+  isRepoPaused,
+  toggleRepoPause,
   type RepoConfig,
   type ProfileType,
   type BuildOptions,
+  type SavedCommand,
 } from '../config.js';
 import {
   listUserRepos,
@@ -783,6 +791,169 @@ router.get('/open-folder', (req: Request, res: Response) => {
 
   // Just return the path - the client can use this
   res.json({ path: folderPath });
+});
+
+// ============ Terminal Execution ============
+
+// Store active terminal sessions
+const terminalSessions: Map<string, {
+  process: ChildProcess;
+  output: string[];
+  status: 'running' | 'completed' | 'error';
+  exitCode?: number;
+}> = new Map();
+
+// Execute a command in a repo's directory
+router.post('/terminal/execute', asyncHandler(async (req: Request, res: Response) => {
+  const { repoFullName, command } = req.body;
+
+  if (!command) {
+    res.status(400).json({ error: 'Command is required' });
+    return;
+  }
+
+  const repo = repoFullName ? getRepoConfig(repoFullName) : null;
+  const cwd = repo?.localPath || getCloneBaseDir();
+
+  if (!existsSync(cwd)) {
+    res.status(400).json({ error: 'Working directory does not exist' });
+    return;
+  }
+
+  const sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+
+  info(`Terminal execute: ${command} in ${cwd}`, 'Terminal');
+
+  const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash';
+  const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
+
+  const childProcess = spawn(shell, shellArgs, {
+    cwd,
+    env: { ...process.env, FORCE_COLOR: '1' },
+    shell: false,
+  });
+
+  const session = {
+    process: childProcess,
+    output: [] as string[],
+    status: 'running' as const,
+    exitCode: undefined as number | undefined,
+  };
+
+  terminalSessions.set(sessionId, session);
+
+  childProcess.stdout?.on('data', (data) => {
+    session.output.push(data.toString());
+  });
+
+  childProcess.stderr?.on('data', (data) => {
+    session.output.push(data.toString());
+  });
+
+  childProcess.on('close', (code) => {
+    session.status = code === 0 ? 'completed' : 'error';
+    session.exitCode = code ?? undefined;
+  });
+
+  childProcess.on('error', (err) => {
+    session.output.push(`Error: ${err.message}`);
+    session.status = 'error';
+  });
+
+  res.json({ sessionId, message: 'Command started' });
+}));
+
+// Get terminal session output
+router.get('/terminal/session/:sessionId', (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const session = terminalSessions.get(sessionId);
+
+  if (!session) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+
+  res.json({
+    output: session.output.join(''),
+    status: session.status,
+    exitCode: session.exitCode,
+  });
+});
+
+// Kill a terminal session
+router.post('/terminal/session/:sessionId/kill', (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const session = terminalSessions.get(sessionId);
+
+  if (!session) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+
+  try {
+    session.process.kill('SIGTERM');
+    session.status = 'completed';
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to kill process' });
+  }
+});
+
+// ============ Saved Commands ============
+
+// Get all saved commands
+router.get('/commands', (_req: Request, res: Response) => {
+  res.json(getSavedCommands());
+});
+
+// Add a saved command
+router.post('/commands', (req: Request, res: Response) => {
+  const { command, description } = req.body;
+
+  if (!command) {
+    res.status(400).json({ error: 'Command is required' });
+    return;
+  }
+
+  const savedCommand = addSavedCommand(command, description);
+  res.json({ success: true, command: savedCommand });
+});
+
+// Delete a saved command
+router.delete('/commands/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const deleted = deleteSavedCommand(id);
+
+  if (!deleted) {
+    res.status(404).json({ error: 'Command not found' });
+    return;
+  }
+
+  res.json({ success: true });
+});
+
+// ============ Pause/Resume Repos ============
+
+// Get paused repos
+router.get('/paused-repos', (_req: Request, res: Response) => {
+  res.json(getPausedRepos());
+});
+
+// Check if a repo is paused
+router.get('/repos/:repoFullName(*)/paused', (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  res.json({ paused: isRepoPaused(decodeURIComponent(repoFullName)) });
+});
+
+// Toggle pause for a repo
+router.post('/repos/:repoFullName(*)/toggle-pause', (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const decodedName = decodeURIComponent(repoFullName);
+  const isPaused = toggleRepoPause(decodedName);
+
+  info(`Repo ${decodedName} is now ${isPaused ? 'paused' : 'resumed'} for webhooks`, 'API');
+
+  res.json({ success: true, paused: isPaused });
 });
 
 export default router;

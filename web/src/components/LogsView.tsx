@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api, RepoConfig, RunRecord, getRunScreenshotUrl, getDiffScreenshotUrl } from '../apiClient';
 import { useTheme } from '../context/ThemeContext';
 import ZoomableImage from './ZoomableImage';
@@ -128,7 +128,8 @@ const getStyles = (darkMode: boolean) => ({
     fontSize: '0.85rem',
     whiteSpace: 'pre-wrap' as const,
     overflow: 'auto',
-    maxHeight: '500px',
+    maxHeight: 'calc(100vh - 400px)',
+    minHeight: '300px',
   },
   screenshotContainer: {
     display: 'grid',
@@ -208,7 +209,7 @@ const getStyles = (darkMode: boolean) => ({
   }),
 });
 
-type LogTab = 'build' | 'runtime' | 'network' | 'screenshot' | 'metadata';
+type LogTab = 'build' | 'runtime' | 'screenshot' | 'metadata';
 type ViewMode = 'list' | 'thumbnails';
 
 function LogsView() {
@@ -226,6 +227,8 @@ function LogsView() {
   const [logContent, setLogContent] = useState<string>('');
   const [loadingLog, setLoadingLog] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('thumbnails');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const logContainerRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     loadRepos();
@@ -296,9 +299,6 @@ function LogsView() {
         case 'runtime':
           content = await api.getRuntimeLog(selectedRepo, selectedRun.branch, selectedRun.runId);
           break;
-        case 'network':
-          content = await api.getNetworkLog(selectedRepo, selectedRun.branch, selectedRun.runId);
-          break;
       }
 
       setLogContent(content);
@@ -308,6 +308,13 @@ function LogsView() {
       setLoadingLog(false);
     }
   }
+
+  // Auto-scroll to bottom when log content changes
+  useEffect(() => {
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logContent, autoScroll]);
 
   function formatTime(timestamp: string) {
     const date = new Date(timestamp);
@@ -480,37 +487,49 @@ function LogsView() {
                     {selectedRun.branch} - {selectedRun.runId}
                   </h3>
 
-                  <div style={styles.tabs}>
-                    <button
-                      style={styles.tab(logTab === 'build')}
-                      onClick={() => setLogTab('build')}
-                    >
-                      Build Log
-                    </button>
-                    <button
-                      style={styles.tab(logTab === 'runtime')}
-                      onClick={() => setLogTab('runtime')}
-                    >
-                      Runtime
-                    </button>
-                    <button
-                      style={styles.tab(logTab === 'network')}
-                      onClick={() => setLogTab('network')}
-                    >
-                      Network
-                    </button>
-                    <button
-                      style={styles.tab(logTab === 'screenshot')}
-                      onClick={() => setLogTab('screenshot')}
-                    >
-                      Screenshots
-                    </button>
-                    <button
-                      style={styles.tab(logTab === 'metadata')}
-                      onClick={() => setLogTab('metadata')}
-                    >
-                      Metadata
-                    </button>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div style={styles.tabs}>
+                      <button
+                        style={styles.tab(logTab === 'build')}
+                        onClick={() => setLogTab('build')}
+                      >
+                        Build Log
+                      </button>
+                      <button
+                        style={styles.tab(logTab === 'runtime')}
+                        onClick={() => setLogTab('runtime')}
+                      >
+                        Runtime
+                      </button>
+                      <button
+                        style={styles.tab(logTab === 'screenshot')}
+                        onClick={() => setLogTab('screenshot')}
+                      >
+                        Screenshots
+                      </button>
+                      <button
+                        style={styles.tab(logTab === 'metadata')}
+                        onClick={() => setLogTab('metadata')}
+                      >
+                        Metadata
+                      </button>
+                    </div>
+                    {(logTab === 'build' || logTab === 'runtime') && (
+                      <button
+                        onClick={() => setAutoScroll(!autoScroll)}
+                        style={{
+                          padding: '0.3rem 0.6rem',
+                          borderRadius: '4px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: '0.75rem',
+                          background: autoScroll ? (darkMode ? '#3b82f6' : '#2563eb') : (darkMode ? '#374151' : '#e5e5e5'),
+                          color: autoScroll ? '#fff' : (darkMode ? '#9ca3af' : '#666'),
+                        }}
+                      >
+                        {autoScroll ? 'Auto-tail ON' : 'Auto-tail OFF'}
+                      </button>
+                    )}
                   </div>
 
                   {logTab === 'screenshot' ? (
@@ -626,7 +645,20 @@ function LogsView() {
                   ) : loadingLog ? (
                     <div style={styles.loading}>Loading log...</div>
                   ) : (
-                    <pre style={styles.logContent}>
+                    <pre
+                      ref={logContainerRef}
+                      style={{
+                        ...styles.logContent,
+                        scrollBehavior: autoScroll ? 'smooth' : 'auto',
+                      }}
+                      onScroll={(e) => {
+                        const target = e.target as HTMLPreElement;
+                        const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 50;
+                        if (!isAtBottom && autoScroll) {
+                          setAutoScroll(false);
+                        }
+                      }}
+                    >
                       {logContent || 'No log content available'}
                     </pre>
                   )}
