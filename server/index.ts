@@ -8,6 +8,7 @@ import { info, error as logError, setLogLevel } from './logging/logger.js';
 import webhookRouter from './github/webhooks.js';
 import uiApiRouter from './routes/uiApi.js';
 import previewRouter from './routes/preview.js';
+import agentApiRouter from './routes/agentApi.js';
 import { getTailscaleIp } from './tailscale/ip.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -61,7 +62,12 @@ async function main() {
   // Mount routes
   app.use('/webhook', webhookRouter);
   app.use('/api', uiApiRouter);
+  app.use('/api/agent', agentApiRouter);
   app.use('/preview', previewRouter);
+
+  // Serve static data files (screenshots, logs)
+  const dataPath = join(__dirname, '..', 'data');
+  app.use('/data', express.static(dataPath));
 
   // Serve static frontend in production
   const webDistPath = join(__dirname, '..', 'web', 'dist');
@@ -70,7 +76,7 @@ async function main() {
   // SPA fallback
   app.get('*', (req, res, next) => {
     // Don't interfere with API routes
-    if (req.path.startsWith('/api') || req.path.startsWith('/webhook') || req.path.startsWith('/preview')) {
+    if (req.path.startsWith('/api') || req.path.startsWith('/webhook') || req.path.startsWith('/preview') || req.path.startsWith('/data')) {
       next();
       return;
     }
@@ -119,6 +125,7 @@ async function main() {
     info('Endpoints:', 'Server');
     info(`  Webhook:    POST http://localhost:${PORT}/webhook`, 'Server');
     info(`  API:        http://localhost:${PORT}/api/*`, 'Server');
+    info(`  Agent API:  http://localhost:${PORT}/api/agent/*`, 'Server');
     info(`  Preview:    http://localhost:${PORT}/preview/*`, 'Server');
     info(`  Frontend:   http://localhost:${PORT}/`, 'Server');
     info('', 'Server');

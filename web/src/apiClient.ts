@@ -177,6 +177,120 @@ export interface TerminalSession {
   exitCode?: number;
 }
 
+// ============ Agent Types ============
+
+export type AgentMode = 'branch' | 'project' | 'task' | 'review' | 'refactor';
+export type SessionState = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+export interface AgentCapabilities {
+  allowSubAgents: boolean;
+  allowFileEdits: boolean;
+  allowGitOps: boolean;
+  allowBash: boolean;
+  allowWebSearch: boolean;
+  allowMcp: boolean;
+  maxSubAgentDepth: number;
+  timeout: number;
+}
+
+export interface McpServerDefinition {
+  name: string;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  description?: string;
+}
+
+export interface StartAgentRequest {
+  workingDir?: string;
+  repoFullName?: string;
+  branch?: string;
+  mode: AgentMode;
+  prompt: string;
+  systemPrompt?: string;
+  permissionPreset?: 'full' | 'safe' | 'custom';
+  capabilities?: Partial<AgentCapabilities>;
+  mcpServers?: string[];
+  customMcpServers?: McpServerDefinition[];
+  allowSlashCommands?: boolean;
+  model?: string;
+}
+
+export interface StartAgentResponse {
+  sessionId: string;
+  message: string;
+  streamUrl: string;
+}
+
+export interface AgentSessionStatus {
+  sessionId: string;
+  state: SessionState;
+  startedAt: string;
+  lastActivity: string;
+  config: {
+    mode: AgentMode;
+    repoFullName?: string;
+    branch?: string;
+    workingDir: string;
+    prompt: string;
+  };
+  eventsCount: number;
+  filesModified: string[];
+  subAgentsSpawned: number;
+  currentPhase?: string;
+  error?: string;
+}
+
+export interface AgentHistoryEntry {
+  sessionId: string;
+  repoFullName?: string;
+  branch?: string;
+  mode: AgentMode;
+  prompt: string;
+  state: SessionState;
+  startedAt: string;
+  endedAt?: string;
+  duration?: number;
+  filesModified: string[];
+  summary?: string;
+}
+
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  mode: AgentMode;
+  promptTemplate: string;
+  systemPrompt?: string;
+  capabilities: AgentCapabilities;
+  mcpServers: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StreamEventType =
+  | 'session_start'
+  | 'thinking'
+  | 'text'
+  | 'tool_use'
+  | 'tool_result'
+  | 'subagent_spawn'
+  | 'subagent_result'
+  | 'file_edit'
+  | 'bash_command'
+  | 'bash_output'
+  | 'error'
+  | 'warning'
+  | 'progress'
+  | 'session_end';
+
+export interface StreamEvent {
+  type: StreamEventType;
+  timestamp: string;
+  sessionId: string;
+  [key: string]: unknown;
+}
+
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -431,7 +545,231 @@ export const api = {
       `/repos/${encodeURIComponent(repoFullName)}/toggle-pause`,
       { method: 'POST' }
     ),
+
+  // ============ Agent API ============
+
+  // Start a new agent session
+  startAgent: (request: StartAgentRequest) =>
+    fetchJson<StartAgentResponse>('/agent/start', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
+
+  // Start agent from template
+  startAgentFromTemplate: (templateId: string, variables?: Record<string, string>, overrides?: Partial<StartAgentRequest>) =>
+    fetchJson<StartAgentResponse>(`/agent/start-from-template/${templateId}`, {
+      method: 'POST',
+      body: JSON.stringify({ variables, ...overrides }),
+    }),
+
+  // Get session status
+  getAgentSession: (sessionId: string) =>
+    fetchJson<AgentSessionStatus>(`/agent/session/${sessionId}`),
+
+  // Get session events
+  getAgentEvents: (sessionId: string, afterIndex?: number) => {
+    const params = afterIndex !== undefined ? `?after=${afterIndex}` : '';
+    return fetchJson<StreamEvent[]>(`/agent/session/${sessionId}/events${params}`);
+  },
+
+  // Cancel a session
+  cancelAgentSession: (sessionId: string, reason?: string) =>
+    fetchJson<{ success: boolean; message: string }>(`/agent/session/${sessionId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+
+  // List active sessions
+  listAgentSessions: () =>
+    fetchJson<AgentSessionStatus[]>('/agent/sessions'),
+
+  // Get session history
+  getAgentHistory: (limit?: number) => {
+    const params = limit ? `?limit=${limit}` : '';
+    return fetchJson<AgentHistoryEntry[]>(`/agent/history${params}`);
+  },
+
+  // Get all templates
+  getAgentTemplates: () =>
+    fetchJson<AgentTemplate[]>('/agent/templates'),
+
+  // Get a specific template
+  getAgentTemplate: (templateId: string) =>
+    fetchJson<AgentTemplate>(`/agent/templates/${templateId}`),
+
+  // Create a new template
+  createAgentTemplate: (template: Omit<AgentTemplate, 'id' | 'createdAt' | 'updatedAt'>) =>
+    fetchJson<AgentTemplate>('/agent/templates', {
+      method: 'POST',
+      body: JSON.stringify(template),
+    }),
+
+  // Update a template
+  updateAgentTemplate: (templateId: string, updates: Partial<AgentTemplate>) =>
+    fetchJson<AgentTemplate>(`/agent/templates/${templateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    }),
+
+  // Delete a template
+  deleteAgentTemplate: (templateId: string) =>
+    fetchJson<{ success: boolean }>(`/agent/templates/${templateId}`, {
+      method: 'DELETE',
+    }),
+
+  // Get available MCP servers
+  getMcpServers: () =>
+    fetchJson<Array<McpServerDefinition & { id: string }>>('/agent/mcp-servers'),
+
+  // Get capability presets
+  getCapabilityPresets: () =>
+    fetchJson<{ full: AgentCapabilities; safe: AgentCapabilities }>('/agent/capability-presets'),
+
+  // Cleanup old sessions
+  cleanupAgentSessions: (maxAge?: number) =>
+    fetchJson<{ success: boolean; cleanedSessions: number }>('/agent/cleanup', {
+      method: 'POST',
+      body: JSON.stringify({ maxAge }),
+    }),
 };
+
+/**
+ * Create an EventSource for streaming agent events
+ */
+export function createAgentEventSource(
+  sessionId: string,
+  options?: { catchUp?: boolean }
+): EventSource {
+  const params = options?.catchUp ? '?catchUp=true' : '';
+  return new EventSource(`${API_BASE}/agent/stream/${sessionId}${params}`);
+}
+
+/**
+ * Subscribe to agent stream events
+ * Returns cleanup function to close the connection
+ */
+export function subscribeToAgentStream(
+  sessionId: string,
+  callbacks: {
+    onEvent?: (event: StreamEvent) => void;
+    onText?: (content: string, isPartial: boolean) => void;
+    onThinking?: (content: string) => void;
+    onToolUse?: (toolName: string, toolId: string, input: Record<string, unknown>) => void;
+    onToolResult?: (toolId: string, result: unknown, success: boolean) => void;
+    onFileEdit?: (filePath: string, action: string, diff?: string) => void;
+    onBashCommand?: (command: string) => void;
+    onBashOutput?: (output: string, isStderr: boolean) => void;
+    onSubAgentSpawn?: (subAgentId: string, description: string) => void;
+    onSubAgentResult?: (subAgentId: string, result: string, success: boolean) => void;
+    onProgress?: (phase: string, message: string, percentage?: number) => void;
+    onError?: (message: string, recoverable: boolean) => void;
+    onWarning?: (message: string) => void;
+    onSessionEnd?: (success: boolean, summary: string, filesModified: string[], duration: number) => void;
+    onConnected?: () => void;
+    onDisconnected?: () => void;
+  },
+  options?: { catchUp?: boolean }
+): () => void {
+  const eventSource = createAgentEventSource(sessionId, options);
+
+  eventSource.addEventListener('connected', () => {
+    callbacks.onConnected?.();
+  });
+
+  eventSource.addEventListener('text', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onText?.(event.content, event.isPartial);
+  });
+
+  eventSource.addEventListener('thinking', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onThinking?.(event.content);
+  });
+
+  eventSource.addEventListener('tool_use', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onToolUse?.(event.toolName, event.toolId, event.input);
+  });
+
+  eventSource.addEventListener('tool_result', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onToolResult?.(event.toolId, event.result, event.success);
+  });
+
+  eventSource.addEventListener('file_edit', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onFileEdit?.(event.filePath, event.action, event.diff);
+  });
+
+  eventSource.addEventListener('bash_command', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onBashCommand?.(event.command);
+  });
+
+  eventSource.addEventListener('bash_output', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onBashOutput?.(event.output, event.isStderr);
+  });
+
+  eventSource.addEventListener('subagent_spawn', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onSubAgentSpawn?.(event.subAgentId, event.description);
+  });
+
+  eventSource.addEventListener('subagent_result', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onSubAgentResult?.(event.subAgentId, event.result, event.success);
+  });
+
+  eventSource.addEventListener('progress', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onProgress?.(event.phase, event.message, event.percentage);
+  });
+
+  eventSource.addEventListener('error', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onError?.(event.message, event.recoverable);
+  });
+
+  eventSource.addEventListener('warning', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onWarning?.(event.message);
+  });
+
+  eventSource.addEventListener('session_end', (e) => {
+    const event = JSON.parse(e.data);
+    callbacks.onEvent?.(event);
+    callbacks.onSessionEnd?.(event.success, event.summary, event.filesModified, event.duration);
+    eventSource.close();
+    callbacks.onDisconnected?.();
+  });
+
+  eventSource.addEventListener('close', () => {
+    eventSource.close();
+    callbacks.onDisconnected?.();
+  });
+
+  eventSource.onerror = () => {
+    callbacks.onDisconnected?.();
+  };
+
+  // Return cleanup function
+  return () => {
+    eventSource.close();
+  };
+}
 
 // Get the base URL for assets (uses Tailscale IP if available)
 export function getAssetBaseUrl(tailscaleIp: string | null, port: number = 3892): string {

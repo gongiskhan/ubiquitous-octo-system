@@ -7,8 +7,9 @@ import RepoSelector from './components/RepoSelector';
 import LogsView from './components/LogsView';
 import Settings from './components/Settings';
 import Terminal from './components/Terminal';
+import Agent from './components/Agent';
 
-type Page = 'dashboard' | 'repos' | 'logs' | 'terminal' | 'settings';
+type Page = 'dashboard' | 'repos' | 'logs' | 'terminal' | 'agent' | 'settings';
 
 const getStyles = (darkMode: boolean) => ({
   app: {
@@ -202,6 +203,12 @@ function AppContent() {
             Terminal
           </button>
           <button
+            style={styles.navButton(page === 'agent')}
+            onClick={() => setPage('agent')}
+          >
+            Agent
+          </button>
+          <button
             style={styles.navButton(page === 'settings')}
             onClick={() => setPage('settings')}
           >
@@ -236,6 +243,7 @@ function AppContent() {
         {page === 'repos' && <RepoSelector />}
         {page === 'logs' && <LogsView />}
         {page === 'terminal' && <Terminal />}
+        {page === 'agent' && <Agent />}
         {page === 'settings' && <Settings status={status} onRefresh={loadStatus} />}
       </main>
     </div>
