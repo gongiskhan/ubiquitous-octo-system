@@ -3,6 +3,9 @@ import { promisify } from 'util';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+
+// Server port - must match server/index.ts
+const SERVER_PORT = parseInt(process.env.PORT || '3892', 10);
 import {
   getRepoConfig,
   addRunRecord,
@@ -260,7 +263,7 @@ export async function executeJob(job: BuildJob): Promise<void> {
 
     // Send Slack notification
     const tailscaleIp = await getTailscaleIp();
-    const baseUrl = tailscaleIp ? `http://${tailscaleIp}:3000` : 'http://localhost:3000';
+    const baseUrl = tailscaleIp ? `http://${tailscaleIp}:${SERVER_PORT}` : `http://localhost:${SERVER_PORT}`;
     const screenshotUrl = result.screenshotPath
       ? `${baseUrl}/preview/${encodeURIComponent(repoFullName)}/${encodeURIComponent(branch)}.png`
       : undefined;

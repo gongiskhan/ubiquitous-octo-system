@@ -852,11 +852,16 @@ router.post('/terminal/execute', asyncHandler(async (req: Request, res: Response
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  const session = {
+  const session: {
+    process: ChildProcess;
+    output: string[];
+    status: 'running' | 'completed' | 'error';
+    exitCode?: number;
+  } = {
     process: childProcess,
-    output: [] as string[],
-    status: 'running' as const,
-    exitCode: undefined as number | undefined,
+    output: [],
+    status: 'running',
+    exitCode: undefined,
   };
 
   terminalSessions.set(sessionId, session);

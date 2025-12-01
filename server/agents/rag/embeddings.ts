@@ -57,12 +57,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const model = await initializeModel();
 
   // Generate embedding with mean pooling and normalization
-  const output = await model(text, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const output = await (model as any)(text, {
     pooling: 'mean',
     normalize: true,
   });
 
-  // Convert to plain number array
+  // Convert to plain number array - output is a Tensor with .data property
   const embedding = Array.from(output.data as Float32Array) as number[];
 
   if (embedding.length !== EMBEDDING_DIMENSION) {

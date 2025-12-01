@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api, RepoConfig, RunRecord, getRunScreenshotUrl, getDiffScreenshotUrl, Status } from '../apiClient';
+import { api, RepoConfig, RunRecord, getRunScreenshotUrl, getDiffScreenshotUrl } from '../apiClient';
 import { useTheme } from '../context/ThemeContext';
 import ZoomableImage from './ZoomableImage';
 

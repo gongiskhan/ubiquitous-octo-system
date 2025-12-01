@@ -10,6 +10,51 @@
       "lastRuns": [
         {
           "branch": "cinepolis-usa",
+          "timestamp": "2025-12-01T13:44:44.206Z",
+          "runId": "2025-12-01T13-44-44-206Z",
+          "status": "success",
+          "buildLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T13-44-44-206Z/build.log",
+          "runtimeLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T13-44-44-206Z/runtime.log",
+          "networkLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T13-44-44-206Z/network.log",
+          "runJsonPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T13-44-44-206Z/run.json",
+          "screenshotPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/screenshots/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T13-44-44-206Z.png",
+          "durations": {
+            "git": 1037,
+            "total": 57937
+          }
+        },
+        {
+          "branch": "main",
+          "timestamp": "2025-11-30T20:00:19.930Z",
+          "runId": "2025-11-30T20-00-19-930Z",
+          "status": "success",
+          "buildLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T20-00-19-930Z/build.log",
+          "runtimeLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T20-00-19-930Z/runtime.log",
+          "networkLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T20-00-19-930Z/network.log",
+          "runJsonPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T20-00-19-930Z/run.json",
+          "screenshotPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/screenshots/gongiskhan_indy-mobileapps/main/2025-11-30T20-00-19-930Z.png",
+          "durations": {
+            "git": 991,
+            "total": 66186
+          }
+        },
+        {
+          "branch": "main",
+          "timestamp": "2025-11-30T19:00:13.110Z",
+          "runId": "2025-11-30T19-00-13-109Z",
+          "status": "success",
+          "buildLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T19-00-13-109Z/build.log",
+          "runtimeLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T19-00-13-109Z/runtime.log",
+          "networkLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T19-00-13-109Z/network.log",
+          "runJsonPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/main/2025-11-30T19-00-13-109Z/run.json",
+          "screenshotPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/screenshots/gongiskhan_indy-mobileapps/main/2025-11-30T19-00-13-109Z.png",
+          "durations": {
+            "git": 1168,
+            "total": 93751
+          }
+        },
+        {
+          "branch": "cinepolis-usa",
           "timestamp": "2025-11-30T09:27:21.244Z",
           "runId": "2025-11-30T09-27-21-244Z",
           "status": "success",
@@ -23,7 +68,13 @@
             "total": 60379
           }
         }
-      ]
+      ],
+      "testingConfig": {
+        "enabled": true,
+        "maxIterations": 5,
+        "passThreshold": 95,
+        "testingProfile": "ios-capacitor"
+      }
     }
   ],
   "webhookBaseUrl": "https://goncalos-macbook-pro.tail31efa.ts.net",
@@ -35,5 +86,19 @@
     "runtimeTimeout": 60000,
     "screenshotTimeout": 10000,
     "screenshotDelay": 2000
-  }
+  },
+  "defaultTestingConfig": {
+    "enabled": true,
+    "maxIterations": 5,
+    "passThreshold": 95,
+    "testingProfile": "web"
+  },
+  "savedCommands": [
+    {
+      "id": "mimasa34b34cir3fs",
+      "command": "npx cap run ios",
+      "createdAt": "2025-11-30T22:34:23.632Z"
+    }
+  ],
+  "pausedRepos": []
 }

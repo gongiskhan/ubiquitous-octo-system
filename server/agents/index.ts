@@ -17,5 +17,20 @@ export { codeAgent, fixIssues } from './code-agent.js';
 export { executeTestAndFix, executeJustTest } from './workflows/test-and-fix.js';
 export type { SlackNotifyCallback, TestAndFixOptions } from './workflows/test-and-fix.js';
 
-// RAG
-export * from './rag/index.js';
+// RAG - explicitly re-export to avoid CredentialData conflict with ./types.js
+export {
+  add,
+  query,
+  getById,
+  deleteItem,
+  clearProject,
+  getProjectItems,
+  getCredentials,
+  storeCredentials,
+  getContextFor,
+  storeTestResult,
+  storeFeedback,
+  storeInstruction,
+  storeIterationResult,
+} from './rag/index.js';
+export type { KnowledgeItem, QueryOptions, QueryResult, KnowledgeType } from './rag/index.js';

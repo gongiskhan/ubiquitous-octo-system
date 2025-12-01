@@ -1,8 +1,14 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { existsSync } from 'fs';
 import { info, warn, error as logError } from '../logging/logger.js';
 
 const execAsync = promisify(exec);
+
+// Tailscale CLI path - on macOS it's inside the app bundle
+const TAILSCALE_CLI = existsSync('/Applications/Tailscale.app/Contents/MacOS/Tailscale')
+  ? '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+  : 'tailscale';
 
 let cachedIp: string | null = null;
 let cacheTime: number = 0;
@@ -22,7 +28,7 @@ export async function getTailscaleIp(): Promise<string | null> {
   }
 
   try {
-    const { stdout, stderr } = await execAsync('tailscale ip -4', {
+    const { stdout, stderr } = await execAsync(`"${TAILSCALE_CLI}" ip -4`, {
       timeout: 5000,
     });
 
@@ -55,7 +61,7 @@ export async function getTailscaleIp(): Promise<string | null> {
 
 export async function isTailscaleRunning(): Promise<boolean> {
   try {
-    await execAsync('tailscale status', { timeout: 5000 });
+    await execAsync(`"${TAILSCALE_CLI}" status`, { timeout: 5000 });
     return true;
   } catch {
     return false;

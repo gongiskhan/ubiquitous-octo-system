@@ -5,7 +5,7 @@
 
 import { spawn } from 'child_process';
 import { join } from 'path';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, unlinkSync, readFileSync } from 'fs';
 import { BaseAgent, registerAgent } from './base.js';
 import type {
   AgentContext,
@@ -330,6 +330,7 @@ class TestAgentImpl extends BaseAgent {
 
   /**
    * Run Claude Code with MCP servers
+   * MCP servers are configured via .mcp.json file in the project directory
    */
   private runClaudeCode(
     prompt: string,
@@ -338,21 +339,39 @@ class TestAgentImpl extends BaseAgent {
     logsDir: string
   ): Promise<{ success: boolean; output: string }> {
     return new Promise((resolve, reject) => {
-      // Build MCP server args
-      const mcpArgs: string[] = [];
+      const mcpConfigPath = join(projectPath, '.mcp.json');
+      let existingMcpConfig: string | null = null;
 
-      // Add Playwright MCP
-      mcpArgs.push('--mcp-server', `playwright:${mcpConfig.playwright.command} ${mcpConfig.playwright.args.join(' ')}`);
+      // Backup existing .mcp.json if it exists
+      if (existsSync(mcpConfigPath)) {
+        existingMcpConfig = readFileSync(mcpConfigPath, 'utf-8');
+      }
+
+      // Build MCP configuration object
+      const mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {
+        playwright: {
+          command: mcpConfig.playwright.command,
+          args: mcpConfig.playwright.args,
+        },
+      };
 
       // Add MobileNext MCP if configured
       if (mcpConfig.mobilenext) {
-        mcpArgs.push('--mcp-server', `mobilenext:${mcpConfig.mobilenext.command} ${mcpConfig.mobilenext.args.join(' ')}`);
+        mcpServers.mobilenext = {
+          command: mcpConfig.mobilenext.command,
+          args: mcpConfig.mobilenext.args,
+          ...(mcpConfig.mobilenext.env && { env: mcpConfig.mobilenext.env }),
+        };
       }
+
+      // Write MCP config file
+      const mcpConfigContent = JSON.stringify({ mcpServers }, null, 2);
+      writeFileSync(mcpConfigPath, mcpConfigContent, 'utf-8');
+      info(`Wrote MCP config to ${mcpConfigPath}`, 'TestAgent');
 
       const args = [
         '-p', // print mode
         '--output-format', 'text',
-        ...mcpArgs,
         prompt,
       ];
 
@@ -377,7 +396,22 @@ class TestAgentImpl extends BaseAgent {
         stderr += data.toString();
       });
 
+      const cleanup = () => {
+        // Restore original .mcp.json or remove the one we created
+        try {
+          if (existingMcpConfig !== null) {
+            writeFileSync(mcpConfigPath, existingMcpConfig, 'utf-8');
+          } else {
+            unlinkSync(mcpConfigPath);
+          }
+        } catch (cleanupError) {
+          warn(`Failed to cleanup MCP config: ${cleanupError}`, 'TestAgent');
+        }
+      };
+
       proc.on('close', (code) => {
+        cleanup();
+
         // Save output to log
         const logPath = join(logsDir, 'test-agent.log');
         writeFileSync(logPath, `STDOUT:\n${stdout}\n\nSTDERR:\n${stderr}`, 'utf-8');
@@ -396,6 +430,7 @@ class TestAgentImpl extends BaseAgent {
       });
 
       proc.on('error', (error) => {
+        cleanup();
         reject(new Error(`Failed to run Claude Code: ${error.message}`));
       });
     });

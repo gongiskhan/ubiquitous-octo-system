@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, RepoConfig, TestingConfig, TestingProfile } from '../apiClient';
+import { api, RepoConfig, TestingProfile } from '../apiClient';
 
 interface Props {
   repoFullName: string;
