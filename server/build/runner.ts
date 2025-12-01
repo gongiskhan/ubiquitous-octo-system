@@ -308,6 +308,7 @@ export async function executeJob(job: BuildJob): Promise<void> {
           runId,
           logsDir,
           screenshotsDir,
+          customTestInstruction: job.customTestInstruction,
         };
 
         // Execute test-and-fix workflow with Slack notifications

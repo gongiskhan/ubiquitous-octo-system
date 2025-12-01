@@ -24,6 +24,8 @@ import {
   getPausedRepos,
   isRepoPaused,
   toggleRepoPause,
+  getLastTestInstruction,
+  setLastTestInstruction,
   type RepoConfig,
   type ProfileType,
   type BuildOptions,
@@ -409,7 +411,7 @@ router.get('/github/repos/:repoFullName(*)/branches', asyncHandler(async (req: R
 // Trigger manual run
 router.post('/trigger-run', (req: Request, res: Response) => {
   try {
-    const { repoFullName, branch = 'main' } = req.body;
+    const { repoFullName, branch = 'main', testInstruction } = req.body;
 
     if (!repoFullName) {
       res.status(400).json({ error: 'repoFullName is required' });
@@ -427,20 +429,33 @@ router.post('/trigger-run', (req: Request, res: Response) => {
       return;
     }
 
+    // Save test instruction if provided (for recall next time)
+    if (testInstruction) {
+      setLastTestInstruction(repoFullName, testInstruction);
+    }
+
     enqueue({
       repoFullName,
       branch,
       queuedAt: new Date().toISOString(),
       trigger: 'manual',
+      customTestInstruction: testInstruction,
     });
 
-    info(`Manual run triggered for ${repoFullName}/${branch}`, 'API');
+    info(`Manual run triggered for ${repoFullName}/${branch}${testInstruction ? ' with custom test instruction' : ''}`, 'API');
 
     res.json({ success: true, message: `Build queued for ${repoFullName}/${branch}` });
   } catch (error) {
     logError(`Trigger run error: ${error}`, 'API');
     res.status(500).json({ error: 'Failed to trigger run' });
   }
+});
+
+// Get last test instruction for a repo
+router.get('/test-instruction/:repoFullName(*)', (req: Request, res: Response) => {
+  const { repoFullName } = req.params;
+  const instruction = getLastTestInstruction(decodeURIComponent(repoFullName));
+  res.json({ instruction: instruction || '' });
 });
 
 // Shortcut for triggering main branch

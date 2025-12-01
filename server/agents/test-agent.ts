@@ -26,7 +26,7 @@ import { info, warn, error as logError } from '../logging/logger.js';
  * Build system prompt for testing
  */
 function buildTestPrompt(context: AgentContext, ragContext: unknown[]): string {
-  const { testingConfig, commitMessage, changedFiles, repoFullName, branch } = context;
+  const { testingConfig, commitMessage, changedFiles, repoFullName, branch, customTestInstruction } = context;
   const url = testingConfig.testingUrl;
 
   let prompt = `You are an autonomous application testing agent. Your role is to thoroughly test applications and identify issues.
@@ -90,8 +90,15 @@ Android TESTING INSTRUCTIONS:
 `;
   }
 
-  // Add focus area based on commit changes
-  if (commitMessage && changedFiles?.length) {
+  // Add focus area - custom instruction takes priority over commit changes
+  if (customTestInstruction) {
+    prompt += `**CUSTOM TEST INSTRUCTION (HIGH PRIORITY):**
+${customTestInstruction}
+
+This is a manual test run. Focus specifically on the instruction above.
+
+`;
+  } else if (commitMessage && changedFiles?.length) {
     prompt += `**FOCUS AREA (HIGH PRIORITY):**
 The recent commit "${commitMessage}" modified: ${changedFiles.join(', ')}
 Prioritize testing areas affected by these changes.

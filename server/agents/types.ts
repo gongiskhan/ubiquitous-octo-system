@@ -128,6 +128,7 @@ export interface AgentContext {
   runId: string;
   logsDir: string;
   screenshotsDir: string;
+  customTestInstruction?: string; // Manual test instruction (overrides commit-based focus)
 }
 
 /**

@@ -188,6 +188,14 @@ function Dashboard() {
   const [loadingBranches, setLoadingBranches] = useState<Record<string, boolean>>({});
   const [pausedRepos, setPausedRepos] = useState<string[]>([]);
 
+  // Manual test run dialog state
+  const [testRunDialog, setTestRunDialog] = useState<{
+    open: boolean;
+    repoFullName: string;
+    branch: string;
+    testInstruction: string;
+  }>({ open: false, repoFullName: '', branch: '', testInstruction: '' });
+
   const loadRepos = useCallback(async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
@@ -241,17 +249,45 @@ function Dashboard() {
     }
   }
 
-  async function runBranch(repo: RepoConfig, branch: string) {
+  async function openTestRunDialog(repo: RepoConfig, branch: string) {
     try {
-      setTriggeringRepo(repo.repoFullName);
-      await api.triggerRun(repo.repoFullName, branch);
-      toast.success(`Build queued for ${repo.repoFullName}/${branch}`);
+      // Fetch last test instruction for this repo
+      const { instruction } = await api.getLastTestInstruction(repo.repoFullName);
+      setTestRunDialog({
+        open: true,
+        repoFullName: repo.repoFullName,
+        branch,
+        testInstruction: instruction || '',
+      });
+    } catch {
+      // If fetching fails, just open with empty instruction
+      setTestRunDialog({
+        open: true,
+        repoFullName: repo.repoFullName,
+        branch,
+        testInstruction: '',
+      });
+    }
+  }
+
+  async function executeTestRun() {
+    const { repoFullName, branch, testInstruction } = testRunDialog;
+    try {
+      setTriggeringRepo(repoFullName);
+      setTestRunDialog((prev) => ({ ...prev, open: false }));
+      await api.triggerRun(repoFullName, branch, testInstruction || undefined);
+      toast.success(`Build queued for ${repoFullName}/${branch}${testInstruction ? ' with custom test' : ''}`);
       await loadRepos(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to trigger run');
     } finally {
       setTriggeringRepo(null);
     }
+  }
+
+  async function runBranch(repo: RepoConfig, branch: string) {
+    // Open dialog for manual runs
+    await openTestRunDialog(repo, branch);
   }
 
   async function rebuildLast(repo: RepoConfig) {
@@ -575,6 +611,96 @@ function Dashboard() {
           );
         })}
       </div>
+
+      {/* Manual Test Run Dialog */}
+      {testRunDialog.open && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setTestRunDialog((prev) => ({ ...prev, open: false }))}
+        >
+          <div
+            style={{
+              background: darkMode ? '#1a1a2e' : '#fff',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              width: '90%',
+              maxWidth: '500px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 1rem', color: darkMode ? '#e0e0e0' : '#1a1a2e' }}>
+              Manual Test Run
+            </h3>
+            <p style={{ margin: '0 0 0.5rem', color: darkMode ? '#9ca3af' : '#666', fontSize: '0.9rem' }}>
+              {testRunDialog.repoFullName} / {testRunDialog.branch}
+            </p>
+            <label style={{ display: 'block', marginBottom: '0.5rem', color: darkMode ? '#9ca3af' : '#666', fontSize: '0.85rem' }}>
+              Test Instruction (what to test):
+            </label>
+            <textarea
+              value={testRunDialog.testInstruction}
+              onChange={(e) => setTestRunDialog((prev) => ({ ...prev, testInstruction: e.target.value }))}
+              placeholder="e.g., Check that movie page images have acceptable height, verify login flow works..."
+              style={{
+                width: '100%',
+                minHeight: '120px',
+                padding: '0.75rem',
+                borderRadius: '4px',
+                border: `1px solid ${darkMode ? '#3a3a5e' : '#ddd'}`,
+                background: darkMode ? '#0f0f1a' : '#f9f9f9',
+                color: darkMode ? '#e0e0e0' : '#1a1a2e',
+                fontSize: '0.9rem',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+            />
+            <p style={{ margin: '0.5rem 0 1rem', color: darkMode ? '#6b7280' : '#999', fontSize: '0.8rem' }}>
+              Leave empty for default testing based on latest commit changes.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setTestRunDialog((prev) => ({ ...prev, open: false }))}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '4px',
+                  border: `1px solid ${darkMode ? '#3a3a5e' : '#ddd'}`,
+                  background: 'transparent',
+                  color: darkMode ? '#9ca3af' : '#666',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeTestRun}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '4px',
+                  border: 'none',
+                  background: darkMode ? '#3b82f6' : '#2563eb',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                Run Test
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

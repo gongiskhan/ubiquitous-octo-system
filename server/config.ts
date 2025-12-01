@@ -100,6 +100,7 @@ export interface RepoConfig {
   buildOptions?: BuildOptions;
   autoCloned?: boolean;
   testingConfig?: TestingConfig;
+  lastTestInstruction?: string; // Last manual test instruction for this repo
 }
 
 export interface SavedCommand {
@@ -509,5 +510,21 @@ export function toggleRepoPause(repoFullName: string): boolean {
   } else {
     pauseRepo(repoFullName);
     return true; // now paused
+  }
+}
+
+// Last test instruction functions
+export function getLastTestInstruction(repoFullName: string): string | undefined {
+  const repo = getRepoConfig(repoFullName);
+  return repo?.lastTestInstruction;
+}
+
+export function setLastTestInstruction(repoFullName: string, instruction: string): void {
+  const config = loadConfig();
+  const repo = config.repos.find((r) => r.repoFullName === repoFullName);
+
+  if (repo) {
+    repo.lastTestInstruction = instruction;
+    saveConfig();
   }
 }

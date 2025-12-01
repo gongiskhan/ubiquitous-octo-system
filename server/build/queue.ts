@@ -8,6 +8,7 @@ export interface BuildJob {
   trigger: 'webhook' | 'manual';
   commitMessage?: string;
   commitAuthor?: string;
+  customTestInstruction?: string; // Manual test instruction for testing agent
 }
 
 interface QueueState {

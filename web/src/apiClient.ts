@@ -422,16 +422,20 @@ export const api = {
     ),
 
   // Trigger builds
-  triggerRun: (repoFullName: string, branch: string = 'main') =>
+  triggerRun: (repoFullName: string, branch: string = 'main', testInstruction?: string) =>
     fetchJson<{ success: boolean; message: string }>('/trigger-run', {
       method: 'POST',
-      body: JSON.stringify({ repoFullName, branch }),
+      body: JSON.stringify({ repoFullName, branch, testInstruction }),
     }),
   triggerRunMain: (repoFullName: string) =>
     fetchJson<{ success: boolean; message: string }>('/trigger-run-main', {
       method: 'POST',
       body: JSON.stringify({ repoFullName }),
     }),
+
+  // Test instructions
+  getLastTestInstruction: (repoFullName: string) =>
+    fetchJson<{ instruction: string }>(`/test-instruction/${encodeURIComponent(repoFullName)}`),
 
   // Queue
   getQueue: () => fetchJson<Status['queue']>('/queue'),
