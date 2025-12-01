@@ -34,3 +34,7 @@ export {
   storeIterationResult,
 } from './rag/index.js';
 export type { KnowledgeItem, QueryOptions, QueryResult, KnowledgeType } from './rag/index.js';
+
+// Streaming Agent
+export { streamingAgentManager } from './streaming-agent.js';
+export * from './streaming-types.js';
