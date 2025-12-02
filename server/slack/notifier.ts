@@ -248,6 +248,16 @@ export function isSlackConfigured(): boolean {
 }
 
 /**
+ * Test failure detail for notifications
+ */
+export interface TestFailureDetail {
+  path: string;
+  feature?: string;
+  error: string;
+  type: 'console-error' | 'network-error' | 'functional-error' | 'visual-error';
+}
+
+/**
  * Testing iteration notification parameters
  */
 export interface TestIterationParams {
@@ -265,6 +275,74 @@ export interface TestIterationParams {
   status: 'in-progress' | 'success' | 'failed' | 'max-iterations';
   screenshotUrl?: string;
   duration: number;
+  // Error details for better debugging
+  failures?: TestFailureDetail[];
+  consoleErrors?: string[];
+  networkErrors?: string[];
+  rawTestOutput?: string;
+}
+
+/**
+ * Format error details for Slack
+ */
+function formatTestErrors(params: {
+  failures?: TestFailureDetail[];
+  consoleErrors?: string[];
+  networkErrors?: string[];
+  rawTestOutput?: string;
+}): string {
+  const { failures, consoleErrors, networkErrors, rawTestOutput } = params;
+  let text = '';
+
+  // Format console errors
+  if (consoleErrors && consoleErrors.length > 0) {
+    text += `\n:rotating_light: *Console Errors:*\n`;
+    for (const error of consoleErrors.slice(0, 5)) {
+      const truncated = error.length > 150 ? error.slice(0, 147) + '...' : error;
+      text += `• \`${truncated}\`\n`;
+    }
+    if (consoleErrors.length > 5) {
+      text += `  _...and ${consoleErrors.length - 5} more_\n`;
+    }
+  }
+
+  // Format network errors
+  if (networkErrors && networkErrors.length > 0) {
+    text += `\n:globe_with_meridians: *Network Errors:*\n`;
+    for (const error of networkErrors.slice(0, 5)) {
+      const truncated = error.length > 150 ? error.slice(0, 147) + '...' : error;
+      text += `• \`${truncated}\`\n`;
+    }
+    if (networkErrors.length > 5) {
+      text += `  _...and ${networkErrors.length - 5} more_\n`;
+    }
+  }
+
+  // Format other failures
+  if (failures && failures.length > 0) {
+    const functionalFailures = failures.filter(f => f.type === 'functional-error' || f.type === 'visual-error');
+    if (functionalFailures.length > 0) {
+      text += `\n:x: *Test Failures:*\n`;
+      for (const failure of functionalFailures.slice(0, 5)) {
+        const truncatedError = failure.error.length > 150 ? failure.error.slice(0, 147) + '...' : failure.error;
+        text += `• ${failure.path}: \`${truncatedError}\`\n`;
+      }
+      if (functionalFailures.length > 5) {
+        text += `  _...and ${functionalFailures.length - 5} more_\n`;
+      }
+    }
+  }
+
+  // If no specific errors but we have raw output, show a snippet
+  if (!text && rawTestOutput && rawTestOutput.length > 0) {
+    const lines = rawTestOutput.split('\n').filter(l => l.trim());
+    const lastLines = lines.slice(-10).join('\n');
+    if (lastLines.trim()) {
+      text += `\n*Test Output (last lines):*\n\`\`\`\n${truncateForSlack(lastLines, 500)}\n\`\`\`\n`;
+    }
+  }
+
+  return text;
 }
 
 /**
@@ -286,6 +364,10 @@ export async function sendTestIterationNotification(params: TestIterationParams)
     status,
     screenshotUrl,
     duration,
+    failures,
+    consoleErrors,
+    networkErrors,
+    rawTestOutput,
   } = params;
 
   // Choose emoji based on status
@@ -342,6 +424,11 @@ export async function sendTestIterationNotification(params: TestIterationParams)
   text += `*Duration:* ${Math.round(duration / 1000)}s\n`;
   text += `*Summary:* ${summary}\n`;
 
+  // Add error details when score is low or status indicates failure
+  if (score < 95 || status === 'failed' || status === 'max-iterations') {
+    text += formatTestErrors({ failures, consoleErrors, networkErrors, rawTestOutput });
+  }
+
   if (screenshotUrl) {
     text += `*Screenshot:* ${screenshotUrl}\n`;
   }
@@ -362,6 +449,12 @@ export async function sendTestWorkflowSummary(params: {
   passThreshold: number;
   totalDuration: number;
   screenshotUrl?: string;
+  // Error details for failed tests
+  failures?: TestFailureDetail[];
+  consoleErrors?: string[];
+  networkErrors?: string[];
+  rawTestOutput?: string;
+  workflowError?: string;
 }): Promise<boolean> {
   const {
     repoFullName,
@@ -373,6 +466,11 @@ export async function sendTestWorkflowSummary(params: {
     passThreshold,
     totalDuration,
     screenshotUrl,
+    failures,
+    consoleErrors,
+    networkErrors,
+    rawTestOutput,
+    workflowError,
   } = params;
 
   const emoji = success ? ':trophy:' : ':warning:';
@@ -389,6 +487,24 @@ export async function sendTestWorkflowSummary(params: {
     text += `:sparkles: All tests passed!\n`;
   } else {
     text += `:point_right: Manual review recommended\n`;
+
+    // Add workflow error if present
+    if (workflowError) {
+      text += `\n:boom: *Workflow Error:*\n\`${truncateForSlack(workflowError, 300)}\`\n`;
+    }
+
+    // Add detailed error information
+    text += formatTestErrors({ failures, consoleErrors, networkErrors, rawTestOutput });
+
+    // If still no error info, indicate that
+    const hasAnyErrors = (failures && failures.length > 0) ||
+                        (consoleErrors && consoleErrors.length > 0) ||
+                        (networkErrors && networkErrors.length > 0) ||
+                        rawTestOutput ||
+                        workflowError;
+    if (!hasAnyErrors) {
+      text += `\n:question: _No specific error details captured. Check the test-agent.log in the run directory for more info._\n`;
+    }
   }
 
   if (screenshotUrl) {

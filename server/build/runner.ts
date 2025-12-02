@@ -327,7 +327,30 @@ export async function executeJob(job: BuildJob): Promise<void> {
         buildLog.appendWithTimestamp(`Iterations: ${testWorkflowResult.iterations.length}`);
         buildLog.appendWithTimestamp(`Duration: ${(testWorkflowResult.duration / 1000).toFixed(1)}s`);
 
-        // Send final workflow summary
+        // Extract error details from the last test iteration
+        const lastTestIteration = testWorkflowResult.iterations.filter(it => it.phase === 'test').pop();
+        const lastTestResultDetails = lastTestIteration?.testResult;
+
+        // Log detailed test results to build log for debugging
+        if (!testWorkflowResult.success && lastTestResultDetails) {
+          buildLog.appendLine('');
+          buildLog.appendWithTimestamp('=== Test Failure Details ===');
+          if (lastTestResultDetails.consoleErrors.length > 0) {
+            buildLog.appendLine(`Console Errors: ${lastTestResultDetails.consoleErrors.join(', ')}`);
+          }
+          if (lastTestResultDetails.networkErrors.length > 0) {
+            buildLog.appendLine(`Network Errors: ${lastTestResultDetails.networkErrors.join(', ')}`);
+          }
+          if (lastTestResultDetails.failures.length > 0) {
+            buildLog.appendLine(`Failures: ${lastTestResultDetails.failures.map(f => `${f.path}: ${f.error}`).join('; ')}`);
+          }
+          if (lastTestResultDetails.rawOutput) {
+            buildLog.appendLine(`Raw Output (last 500 chars):`);
+            buildLog.appendLine(lastTestResultDetails.rawOutput.slice(-500));
+          }
+        }
+
+        // Send final workflow summary with error details
         await sendTestWorkflowSummary({
           repoFullName,
           branch,
@@ -338,6 +361,10 @@ export async function executeJob(job: BuildJob): Promise<void> {
           passThreshold: testingConfig.passThreshold,
           totalDuration: testWorkflowResult.duration,
           screenshotUrl,
+          failures: lastTestResultDetails?.failures,
+          consoleErrors: lastTestResultDetails?.consoleErrors,
+          networkErrors: lastTestResultDetails?.networkErrors,
+          rawTestOutput: lastTestResultDetails?.rawOutput,
         });
       }
     } else {

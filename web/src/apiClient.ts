@@ -741,9 +741,12 @@ export function subscribeToAgentStream(
   });
 
   eventSource.addEventListener('error', (e) => {
-    const event = JSON.parse(e.data);
-    callbacks.onEvent?.(event);
-    callbacks.onError?.(event.message, event.recoverable);
+    const messageEvent = e as MessageEvent;
+    if (messageEvent.data) {
+      const event = JSON.parse(messageEvent.data);
+      callbacks.onEvent?.(event);
+      callbacks.onError?.(event.message, event.recoverable);
+    }
   });
 
   eventSource.addEventListener('warning', (e) => {

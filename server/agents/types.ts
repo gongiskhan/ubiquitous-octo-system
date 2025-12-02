@@ -17,6 +17,7 @@ export interface TestResult {
   testsPassed: number;
   testsFailed: number;
   score: number; // 0-100 percentage
+  rawOutput?: string; // Raw output from test agent for debugging
 }
 
 /**

@@ -17,6 +17,16 @@ import { DEFAULT_PASS_THRESHOLD, DEFAULT_MAX_ITERATIONS } from '../types.js';
 import { info, warn, error as logError } from '../../logging/logger.js';
 
 /**
+ * Test failure detail for notifications
+ */
+export interface TestFailureDetail {
+  path: string;
+  feature?: string;
+  error: string;
+  type: 'console-error' | 'network-error' | 'functional-error' | 'visual-error';
+}
+
+/**
  * Slack notification callback type
  */
 export type SlackNotifyCallback = (params: {
@@ -34,6 +44,11 @@ export type SlackNotifyCallback = (params: {
   status: 'in-progress' | 'success' | 'failed' | 'max-iterations';
   screenshotUrl?: string;
   duration: number;
+  // Error details for better debugging
+  failures?: TestFailureDetail[];
+  consoleErrors?: string[];
+  networkErrors?: string[];
+  rawTestOutput?: string;
 }) => Promise<void>;
 
 /**
@@ -91,6 +106,10 @@ export async function executeTestAndFix(options: TestAndFixOptions): Promise<Wor
           summary: `Starting iteration ${i} - testing...`,
           status: 'in-progress',
           duration: Date.now() - startTime,
+          failures: lastTestResult?.failures,
+          consoleErrors: lastTestResult?.consoleErrors,
+          networkErrors: lastTestResult?.networkErrors,
+          rawTestOutput: lastTestResult?.rawOutput,
         });
       }
 
@@ -143,6 +162,10 @@ export async function executeTestAndFix(options: TestAndFixOptions): Promise<Wor
             summary: `Tests passed! Score: ${lastTestResult.score}%`,
             status: 'success',
             duration: Date.now() - startTime,
+            failures: lastTestResult.failures,
+            consoleErrors: lastTestResult.consoleErrors,
+            networkErrors: lastTestResult.networkErrors,
+            rawTestOutput: lastTestResult.rawOutput,
           });
         }
 
@@ -169,6 +192,10 @@ export async function executeTestAndFix(options: TestAndFixOptions): Promise<Wor
             summary: `Score ${lastTestResult.score}% below threshold ${passThreshold}%. Attempting to fix...`,
             status: 'in-progress',
             duration: Date.now() - startTime,
+            failures: lastTestResult.failures,
+            consoleErrors: lastTestResult.consoleErrors,
+            networkErrors: lastTestResult.networkErrors,
+            rawTestOutput: lastTestResult.rawOutput,
           });
         }
 
@@ -216,6 +243,10 @@ export async function executeTestAndFix(options: TestAndFixOptions): Promise<Wor
             summary: `Applied ${lastFixResult.changesApplied} fixes. Will retest in next iteration.`,
             status: 'in-progress',
             duration: Date.now() - startTime,
+            failures: lastTestResult.failures,
+            consoleErrors: lastTestResult.consoleErrors,
+            networkErrors: lastTestResult.networkErrors,
+            rawTestOutput: lastTestResult.rawOutput,
           });
         }
 
@@ -243,6 +274,10 @@ export async function executeTestAndFix(options: TestAndFixOptions): Promise<Wor
             summary: `Max iterations reached. Final score: ${lastTestResult.score}% (threshold: ${passThreshold}%)`,
             status: 'max-iterations',
             duration: Date.now() - startTime,
+            failures: lastTestResult.failures,
+            consoleErrors: lastTestResult.consoleErrors,
+            networkErrors: lastTestResult.networkErrors,
+            rawTestOutput: lastTestResult.rawOutput,
           });
         }
 
@@ -267,6 +302,10 @@ export async function executeTestAndFix(options: TestAndFixOptions): Promise<Wor
         summary: `Workflow error: ${message}`,
         status: 'failed',
         duration: Date.now() - startTime,
+        failures: lastTestResult?.failures,
+        consoleErrors: lastTestResult?.consoleErrors,
+        networkErrors: lastTestResult?.networkErrors,
+        rawTestOutput: lastTestResult?.rawOutput,
       });
     }
 

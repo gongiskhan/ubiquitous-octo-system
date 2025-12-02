@@ -221,7 +221,15 @@ function parseTestOutput(output: string): TestResult {
     testsPassed = hasErrors ? 0 : 1;
     testsFailed = hasErrors ? 1 : 0;
     summary = hasErrors ? 'Issues detected during testing' : 'Test completed successfully';
+
+    // If output is empty or very short, indicate that
+    if (!output || output.trim().length < 10) {
+      summary = 'No test output received from Claude Code';
+    }
   }
+
+  // Truncate raw output for storage (keep last 2000 chars for debugging)
+  const rawOutput = output.length > 2000 ? '...' + output.slice(-2000) : output;
 
   return {
     success: score >= 95,
@@ -233,6 +241,7 @@ function parseTestOutput(output: string): TestResult {
     testsPassed,
     testsFailed,
     score,
+    rawOutput: rawOutput || undefined,
   };
 }
 

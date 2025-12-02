@@ -9,7 +9,6 @@ import {
   AgentHistoryEntry,
   StreamEvent,
   StartAgentRequest,
-  AgentCapabilities,
 } from '../apiClient';
 import { useTheme } from '../context/ThemeContext';
 
@@ -442,7 +441,7 @@ function Agent() {
           onProgress: (phase) => {
             setSessionState(`running: ${phase}`);
           },
-          onSessionEnd: (success, summary, filesModified, duration) => {
+          onSessionEnd: (success, summary, _filesModified, duration) => {
             setSessionState(success ? 'completed' : 'failed');
             setIsConnected(false);
             loadHistory();

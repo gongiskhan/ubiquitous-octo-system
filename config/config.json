@@ -10,6 +10,21 @@
       "lastRuns": [
         {
           "branch": "cinepolis-usa",
+          "timestamp": "2025-12-01T19:59:49.451Z",
+          "runId": "2025-12-01T19-59-49-451Z",
+          "status": "success",
+          "buildLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T19-59-49-451Z/build.log",
+          "runtimeLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T19-59-49-451Z/runtime.log",
+          "networkLogPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T19-59-49-451Z/network.log",
+          "runJsonPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/logs/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T19-59-49-451Z/run.json",
+          "screenshotPath": "/Users/ggomes/WebstormProjects/ubiquitous-octo-system/data/screenshots/gongiskhan_indy-mobileapps/cinepolis-usa/2025-12-01T19-59-49-451Z.png",
+          "durations": {
+            "git": 1308,
+            "total": 62092
+          }
+        },
+        {
+          "branch": "cinepolis-usa",
           "timestamp": "2025-12-01T13:44:44.206Z",
           "runId": "2025-12-01T13-44-44-206Z",
           "status": "success",
@@ -74,7 +89,8 @@
         "maxIterations": 5,
         "passThreshold": 95,
         "testingProfile": "ios-capacitor"
-      }
+      },
+      "lastTestInstruction": "I want you to check that the now playing page so as soon as we select a location has the right height for the images. At the moment it's all squashed. It's not supposed to be like that at all. If you go to the Cinepolis-USA website, you'll see that it has nothing to do with this so we need to fix it. So if you're in doubt, if the images don't look squashed to you, then go and check the website because you'll see what's wrong. Use the mobile MCP to check for this "
     }
   ],
   "webhookBaseUrl": "https://goncalos-macbook-pro.tail31efa.ts.net",
